@@ -144,3 +144,49 @@ def test_edit_question_and_rubric():
     assert b"updated successfully" in res.data or b"Updated Question Text" in res.data
 
 
+def test_parse_word_document_roster():
+    from services.student_service import StudentService
+    word_bytes = StudentService.generate_word_template()
+    assert len(word_bytes) > 0
+
+    valid, invalid = StudentService.parse_file(word_bytes, "students.docx")
+    assert len(valid) >= 4
+    assert any(s["pin"] == "26054-ES-041" for s in valid)
+    assert any("PRANAVI" in s["full_name"] for s in valid)
+
+
+def test_parse_file_with_top_header_banners():
+    from services.student_service import StudentService
+    # CSV with college title banner in rows 1 and 2 before actual table header
+    csv_content = (
+        "GOVERNMENT POLYTECHNIC COLLEGE HYDERABAD,,,\n"
+        "DEPARTMENT OF ELECTRONICS & COMMUNICATION ENGINEERING,,,\n"
+        "ACADEMIC YEAR 2026-2027 DIPLOMA I YEAR,,,\n"
+        "SL_NO,PIN,NAME OF THE CANDIDATE,MOBILE_NO\n"
+        "1,26054-ES-041,KASHABOINA PRANAVI,9502210435\n"
+        "2,26054-CPS-001,A SUJATHA,6305307638\n"
+        "TOTAL STUDENTS: 2,,,\n"
+    ).encode("utf-8")
+
+    valid, invalid = StudentService.parse_file(csv_content, "diploma_ece_banner.csv")
+    assert len(valid) == 2
+    assert valid[0]["pin"] == "26054-ES-041"
+    assert "PRANAVI" in valid[0]["full_name"]
+    assert valid[1]["pin"] == "26054-CPS-001"
+
+
+def test_download_word_template():
+    from app import app
+    client = app.test_client()
+
+    with client.session_transaction() as sess:
+        sess["teacher_id"] = "test-teacher-id"
+        sess["teacher_name"] = "Dr. Test Lecturer"
+        sess["role"] = "lecturer"
+
+    res = client.get("/teacher/students/template/word")
+    assert res.status_code == 200
+    assert "wordprocessingml" in res.content_type
+
+
+

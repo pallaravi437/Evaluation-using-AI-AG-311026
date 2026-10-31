@@ -365,6 +365,18 @@ def download_student_template():
         download_name="BEA_Student_Roster_Template.xlsx"
     )
 
+@teacher_bp.route("/students/template/word")
+@teacher_required
+def download_student_word_template():
+    """Generates and downloads the official student roster Word (.docx) template."""
+    content = StudentService.generate_word_template()
+    return send_file(
+        io.BytesIO(content),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name="BEA_Student_Roster_Template.docx"
+    )
+
 @teacher_bp.route("/evaluate/<submission_id>")
 @teacher_required
 def evaluate_submission(submission_id):
