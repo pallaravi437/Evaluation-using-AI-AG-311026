@@ -40,7 +40,8 @@ def login():
         else:
             flash(message, "danger")
 
-    return render_template("login.html", active_tab="student")
+    recent_submissions = SubmissionService.get_recent_submissions()
+    return render_template("login.html", active_tab="student", recent_submissions=recent_submissions)
 
 @student_bp.route("/logout")
 def logout():
