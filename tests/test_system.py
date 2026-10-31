@@ -70,3 +70,38 @@ def test_assessment_default_seeding():
     assessments = AssessmentService.get_all_assessments()
     assert len(assessments) >= 1
     assert "BJT" in assessments[0]["title"]
+
+
+def test_add_question_with_image():
+    from app import app
+    client = app.test_client()
+
+    with client.session_transaction() as sess:
+        sess["teacher_id"] = "test-teacher-id"
+        sess["teacher_name"] = "Dr. Test Lecturer"
+        sess["role"] = "lecturer"
+
+    # Create dummy image
+    img_data = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    data = {
+        "question_number": "99",
+        "question_text": "Draw and explain testing circuit diagram.",
+        "max_marks": "5",
+        "model_answer": "Standard test model answer.",
+        "acceptable_alternatives": "None",
+        "difficulty": "medium",
+        "criterion_title": ["Circuit Diagram", "Explanation"],
+        "criterion_marks": ["3", "2"],
+        "criterion_desc": ["Correct pinout", "Full theory"],
+        "question_image": (io.BytesIO(img_data), "test_circuit.gif")
+    }
+
+    res = client.post(
+        "/teacher/assessment/bea-test-unit-001/add-question",
+        data=data,
+        content_type="multipart/form-data",
+        follow_redirects=True
+    )
+    assert res.status_code == 200
+    assert b"Question 99" in res.data or b"successfully" in res.data
+

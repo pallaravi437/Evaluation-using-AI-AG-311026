@@ -1,3 +1,4 @@
+import os
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -7,6 +8,7 @@ from services.auth_service import AuthService
 from services.assessment_service import AssessmentService
 from services.submission_service import SubmissionService
 from services.student_service import StudentService
+from services.image_service import ImageService
 from services.ai_service import AIService
 from services.analytics_service import AnalyticsService
 from database.db_manager import db_manager
