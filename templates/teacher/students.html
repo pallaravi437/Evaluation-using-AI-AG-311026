@@ -129,69 +129,97 @@
   </div>
 {% endif %}
 
-<!-- Active Registered Students List with Vertical & Horizontal Drag Options -->
+<!-- Active Registered Students List with Select, Select All, Delete & Drag Options -->
 <div class="card" style="padding: 1.25rem 1.5rem;">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
-    <div>
-      <h3 style="font-size: 1.15rem; font-weight: 600;">
-        Registered Students Roster ({{ students | length }})
-      </h3>
-      <span style="font-size: 0.8rem; color: #38bdf8;">
-        ↔️ ↕️ Click & drag or use mouse wheel to scroll horizontally and vertically across all records.
-      </span>
-    </div>
-  </div>
+  <form id="form-bulk-students" action="{{ url_for('teacher.delete_students_batch') }}" method="POST">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div>
+        <h3 style="font-size: 1.15rem; font-weight: 600; margin-bottom: 0.25rem;">
+          Registered Students Roster ({{ students | length }})
+        </h3>
+        <span style="font-size: 0.8rem; color: #38bdf8;">
+          ↔️ ↕️ Click & drag or use mouse wheel to scroll horizontally and vertically across all records.
+        </span>
+      </div>
 
-  <div class="drag-scroll-container" style="max-height: 480px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); position: relative; cursor: grab;">
-    <table class="table" style="min-width: 950px; margin-bottom: 0;">
-      <thead>
-        <tr>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">S.No</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Student Name</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Unique PIN</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Branch & Sec</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Semester</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Academic Year</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Contact Phone</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Contact Email</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Status</th>
-          <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap; text-align: center;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for st in students %}
+      <!-- Batch Actions Bar -->
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="selectAllToggle()" id="btn-select-all-toggle">
+          ☑️ Select All
+        </button>
+        <button type="submit" id="btn-delete-selected" class="btn btn-danger btn-sm" style="display: none;" onclick="return confirmBatchDelete()">
+          🗑️ Delete Selected (<span id="selected-badge-count">0</span>)
+        </button>
+      </div>
+    </div>
+
+    <div class="drag-scroll-container" style="max-height: 480px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); position: relative; cursor: grab;">
+      <table class="table" style="min-width: 1020px; margin-bottom: 0;">
+        <thead>
           <tr>
-            <td>{{ loop.index }}</td>
-            <td style="white-space: nowrap;"><strong>{{ st.full_name }}</strong></td>
-            <td style="white-space: nowrap;"><code style="color: var(--secondary); font-weight: 700;">{{ st.pin }}</code></td>
-            <td style="white-space: nowrap;">{{ st.branch }} (Sec {{ st.section }})</td>
-            <td style="white-space: nowrap;">{{ st.semester }}</td>
-            <td style="white-space: nowrap;">{{ st.academic_year }}</td>
-            <td style="white-space: nowrap;">{{ st.contact_phone or '—' }}</td>
-            <td style="white-space: nowrap;">{{ st.contact_email or '—' }}</td>
-            <td style="white-space: nowrap;">
-              {% if st.is_active %}
-                <span class="badge badge-success">Active</span>
-              {% else %}
-                <span class="badge badge-danger">Inactive</span>
-              {% endif %}
-            </td>
-            <td style="text-align: center; white-space: nowrap;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="openEditStudentModal({{ loop.index0 }})" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">
-                ✏️ Edit
-              </button>
-            </td>
+            <th style="width: 45px; position: sticky; top: 0; background: #1e293b; z-index: 6; box-shadow: 0 2px 4px rgba(0,0,0,0.4); text-align: center;">
+              <input type="checkbox" id="master-select-all" onchange="handleMasterCheckbox(this)" title="Select / Deselect All">
+            </th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">S.No</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Student Name</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Unique PIN</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Branch & Sec</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Semester</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Academic Year</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Contact Phone</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Contact Email</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap;">Status</th>
+            <th style="position: sticky; top: 0; background: #1e293b; z-index: 5; box-shadow: 0 2px 4px rgba(0,0,0,0.4); white-space: nowrap; text-align: center;">Actions</th>
           </tr>
-        {% else %}
-          <tr>
-            <td colspan="10" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
-              No students enrolled yet. Upload a roster file (.docx, .doc, .xlsx, .csv) above.
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+        </thead>
+        <tbody>
+          {% for st in students %}
+            <tr>
+              <td style="text-align: center;">
+                <input type="checkbox" name="selected_students" value="{{ st.id or st.pin }}" class="student-row-checkbox" onchange="updateBatchDeleteUI()">
+              </td>
+              <td>{{ loop.index }}</td>
+              <td style="white-space: nowrap;"><strong>{{ st.full_name }}</strong></td>
+              <td style="white-space: nowrap;"><code style="color: var(--secondary); font-weight: 700;">{{ st.pin }}</code></td>
+              <td style="white-space: nowrap;">{{ st.branch }} (Sec {{ st.section }})</td>
+              <td style="white-space: nowrap;">{{ st.semester }}</td>
+              <td style="white-space: nowrap;">{{ st.academic_year }}</td>
+              <td style="white-space: nowrap;">{{ st.contact_phone or '—' }}</td>
+              <td style="white-space: nowrap;">{{ st.contact_email or '—' }}</td>
+              <td style="white-space: nowrap;">
+                {% if st.is_active %}
+                  <span class="badge badge-success">Active</span>
+                {% else %}
+                  <span class="badge badge-danger">Inactive</span>
+                {% endif %}
+              </td>
+              <td style="text-align: center; white-space: nowrap;">
+                <div style="display: inline-flex; gap: 0.35rem; align-items: center;">
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="openEditStudentModal({{ loop.index0 }})" style="padding: 0.25rem 0.6rem; font-size: 0.78rem;">
+                    ✏️ Edit
+                  </button>
+                  <button type="button" class="btn btn-danger btn-sm" onclick="deleteSingleStudent('{{ st.id or st.pin }}', '{{ st.full_name }}', '{{ st.pin }}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem;" title="Delete Student">
+                    🗑️
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="11" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+                No students enrolled yet. Upload a roster file (.docx, .doc, .xlsx, .csv) above.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+
+  <!-- Hidden single-delete form -->
+  <form id="form-single-delete" action="{{ url_for('teacher.delete_students_batch') }}" method="POST" style="display: none;">
+    <input type="hidden" name="student_id" id="single-delete-student-id">
+  </form>
 </div>
 
 <!-- Modal: Edit Pending Preview Row -->
@@ -369,6 +397,58 @@
     document.getElementById("modal-edit-student").style.display = "flex";
   }
 
+  function deleteSingleStudent(id, name, pin) {
+    if (confirm(`⚠️ Are you sure you want to delete ${name} (${pin}) from the registered roster?`)) {
+      document.getElementById("single-delete-student-id").value = id || pin;
+      document.getElementById("form-single-delete").submit();
+    }
+  }
+
+  function handleMasterCheckbox(master) {
+    const checkboxes = document.querySelectorAll(".student-row-checkbox");
+    checkboxes.forEach(cb => { cb.checked = master.checked; });
+    updateBatchDeleteUI();
+  }
+
+  function selectAllToggle() {
+    const checkboxes = document.querySelectorAll(".student-row-checkbox");
+    const master = document.getElementById("master-select-all");
+    const anyUnchecked = Array.from(checkboxes).some(cb => !cb.checked);
+    const targetState = anyUnchecked;
+    checkboxes.forEach(cb => { cb.checked = targetState; });
+    if (master) master.checked = targetState;
+    updateBatchDeleteUI();
+  }
+
+  function updateBatchDeleteUI() {
+    const checkboxes = document.querySelectorAll(".student-row-checkbox:checked");
+    const count = checkboxes.length;
+    const btn = document.getElementById("btn-delete-selected");
+    const badge = document.getElementById("selected-badge-count");
+    const selectAllBtn = document.getElementById("btn-select-all-toggle");
+    const master = document.getElementById("master-select-all");
+    const allCheckboxes = document.querySelectorAll(".student-row-checkbox");
+
+    if (badge) badge.innerText = count;
+    if (btn) btn.style.display = count > 0 ? "inline-flex" : "none";
+
+    if (master && allCheckboxes.length > 0) {
+      master.checked = (count === allCheckboxes.length);
+    }
+    if (selectAllBtn) {
+      selectAllBtn.innerText = (count === allCheckboxes.length && count > 0) ? "✖️ Deselect All" : "☑️ Select All";
+    }
+  }
+
+  function confirmBatchDelete() {
+    const count = document.querySelectorAll(".student-row-checkbox:checked").length;
+    if (count === 0) {
+      alert("Please select at least one student to delete.");
+      return false;
+    }
+    return confirm(`⚠️ Are you sure you want to permanently delete ${count} selected student(s) from the roster? This cannot be undone.`);
+  }
+
   // Smooth click & drag (horizontal + vertical pan) for wide and long tables
   function enableDragScroll(selector) {
     const containers = document.querySelectorAll(selector);
@@ -414,6 +494,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     enableDragScroll(".drag-scroll-container");
+    updateBatchDeleteUI();
   });
 </script>
 {% endblock %}

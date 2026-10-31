@@ -558,3 +558,34 @@ class StudentService:
                     st["is_active"] = bool(student_data["is_active"])
                 return True, "Student details updated (Local mode)."
         return False, "Student not found."
+
+    @classmethod
+    def delete_students(cls, identifiers: List[str]) -> Tuple[bool, int, str]:
+        """Deletes one or multiple students by ID or PIN."""
+        if not identifiers:
+            return False, 0, "No students selected for deletion."
+
+        clean_ids = [str(i).strip() for i in identifiers if str(i).strip()]
+        if not clean_ids:
+            return False, 0, "No valid student identifiers provided."
+
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                # Delete by ID and PIN
+                supabase.table("students").delete().in_("id", clean_ids).execute()
+                supabase.table("students").delete().in_("pin", clean_ids).execute()
+                return True, len(clean_ids), f"Successfully deleted {len(clean_ids)} student(s)."
+            except Exception as e:
+                logger.error(f"Error deleting students in Supabase: {e}")
+                return False, 0, str(e)
+
+        # Local mode
+        global _local_students
+        initial_count = len(_local_students)
+        _local_students = [
+            st for st in _local_students 
+            if st.get("id") not in clean_ids and st.get("pin") not in clean_ids
+        ]
+        deleted_count = initial_count - len(_local_students)
+        return True, deleted_count, f"Successfully deleted {deleted_count} student(s) (Local mode)."

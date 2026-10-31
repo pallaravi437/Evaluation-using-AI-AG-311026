@@ -266,5 +266,42 @@ def test_edit_preview_student():
     assert b"updated" in res.data or b"CORRECTED" in res.data
 
 
+def test_delete_students_batch():
+    from app import app
+    from services.student_service import StudentService
+    client = app.test_client()
+
+    with client.session_transaction() as sess:
+        sess["teacher_id"] = "test-teacher-id"
+        sess["teacher_name"] = "Dr. Test Lecturer"
+        sess["role"] = "lecturer"
+
+    # Add a temporary test student to delete
+    StudentService.import_students([{
+        "pin": "TEMP-DEL-999",
+        "full_name": "STUDENT TO DELETE",
+        "academic_year": "2026-2027",
+        "semester": "Semester 1",
+        "branch": "ECE",
+        "section": "A"
+    }])
+
+    students_before = StudentService.get_all_students()
+    assert any(s["pin"] == "TEMP-DEL-999" for s in students_before)
+
+    # Batch delete
+    res = client.post(
+        "/teacher/students/delete-batch",
+        data={"selected_students": ["TEMP-DEL-999"]},
+        follow_redirects=True
+    )
+    assert res.status_code == 200
+    assert b"deleted" in res.data or b"Successfully" in res.data
+
+    students_after = StudentService.get_all_students()
+    assert not any(s["pin"] == "TEMP-DEL-999" for s in students_after)
+
+
+
 
 

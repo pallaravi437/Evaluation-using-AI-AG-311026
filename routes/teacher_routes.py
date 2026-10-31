@@ -396,6 +396,27 @@ def edit_preview_student(row_idx):
         flash("Invalid preview row index.", "warning")
     return redirect(url_for("teacher.manage_students"))
 
+@teacher_bp.route("/students/delete-batch", methods=["POST"])
+@teacher_required
+def delete_students_batch():
+    """Deletes one or multiple selected students from Registered Students Roster."""
+    selected_ids = request.form.getlist("selected_students")
+    if not selected_ids:
+        single_id = request.form.get("student_id")
+        if single_id:
+            selected_ids = [single_id]
+
+    if not selected_ids:
+        flash("Please select at least one student to delete.", "warning")
+        return redirect(url_for("teacher.manage_students"))
+
+    success, count, msg = StudentService.delete_students(selected_ids)
+    if success:
+        flash(f"Successfully deleted {count} student(s) from roster.", "info")
+    else:
+        flash(f"Failed to delete students: {msg}", "danger")
+    return redirect(url_for("teacher.manage_students"))
+
 @teacher_bp.route("/students/template")
 @teacher_required
 def download_student_template():
