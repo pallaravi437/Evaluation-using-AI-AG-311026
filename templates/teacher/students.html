@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Student Roster & Enrollment - BEA{% endblock %}
+
+{% block content %}
+<div class="card-header">
+  <div>
+    <h1 class="card-title">👥 Student Roster Management (60–70 Diploma Batch)</h1>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+      Import Excel/CSV student records, manage PINs, and maintain safe student profiles.
+    </p>
+  </div>
+
+  <div style="display: flex; gap: 0.75rem;">
+    <a href="{{ url_for('teacher.download_student_template') }}" class="btn btn-secondary">
+      📥 Download Excel Template
+    </a>
+  </div>
+</div>
+
+<!-- Upload Roster Card -->
+<div class="card" style="border-left: 4px solid var(--secondary);">
+  <h3 style="font-size: 1.15rem; font-weight: 600; margin-bottom: 0.75rem;">
+    📤 Import Students (Excel / CSV)
+  </h3>
+  <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+    Supports standard columns as well as Board APAAR formats (e.g. <code>REGN_NO</code>, <code>AADHAAR NAME</code>, <code>MOBILE</code>). Existing records will NOT be deleted.
+  </p>
+
+  <form action="{{ url_for('teacher.manage_students') }}" method="POST" enctype="multipart/form-data" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 250px;">
+      <label class="form-label" for="roster_file">Select .xlsx or .csv student file</label>
+      <input type="file" id="roster_file" name="roster_file" class="form-control" accept=".xlsx,.csv" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+      Parse & Preview File →
+    </button>
+  </form>
+</div>
+
+<!-- Preview & Validation Card (if file was just uploaded) -->
+{% if preview_data is not none %}
+  <div class="card" style="border: 2px solid var(--warning); background: rgba(30, 41, 59, 0.95);">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title" style="color: #fbbf24;">🔎 Import Preview & Validation Report</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          Found <strong>{{ preview_data | length }}</strong> valid rows.
+          {% if invalid_rows %}
+            <span style="color: #f87171;">⚠️ {{ invalid_rows | length }} invalid rows with issues.</span>
+          {% endif %}
+        </p>
+      </div>
+
+      {% if preview_data %}
+        <form action="{{ url_for('teacher.confirm_student_import') }}" method="POST">
+          <button type="submit" class="btn btn-success">
+            ✓ Confirm & Commit {{ preview_data | length }} Students to Database
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+    <!-- Invalid Rows Report (if any) -->
+    {% if invalid_rows %}
+      <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 1rem; border-radius: var(--radius-sm); margin-bottom: 1.5rem;">
+        <h4 style="font-size: 0.9rem; font-weight: 700; color: #fca5a5; margin-bottom: 0.5rem;">
+          ❌ Invalid Rows (Skipped from Import):
+        </h4>
+        <ul style="padding-left: 1.25rem; font-size: 0.8rem; color: #fee2e2;">
+          {% for inv in invalid_rows %}
+            <li>
+              Row {{ inv.row_number }}: PIN: '{{ inv.pin or 'N/A' }}', Name: '{{ inv.name or 'N/A' }}' — {{ inv.errors | join(', ') }}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <!-- Preview Table -->
+    {% if preview_data %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Row</th>
+              <th>Student PIN</th>
+              <th>Student Name</th>
+              <th>Academic Year</th>
+              <th>Semester</th>
+              <th>Branch / Sec</th>
+              <th>Phone</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_data[:10] %}
+              <tr>
+                <td>{{ row.row_number }}</td>
+                <td><strong style="color: var(--secondary);">{{ row.pin }}</strong></td>
+                <td>{{ row.full_name }}</td>
+                <td>{{ row.academic_year }}</td>
+                <td>{{ row.semester }}</td>
+                <td>{{ row.branch }} - {{ row.section }}</td>
+                <td>{{ row.contact_phone or '—' }}</td>
+              </tr>
+            {% endfor %}
+            {% if preview_data | length > 10 %}
+              <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); font-size: 0.8rem;">
+                  ... and {{ (preview_data | length) - 10 }} more student rows ready for confirmation.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<!-- Active Registered Students List -->
+<div class="card" style="padding: 0;">
+  <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+    <h3 style="font-size: 1.15rem; font-weight: 600;">
+      Registered Students Roster ({{ students | length }})
+    </h3>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Student Name</th>
+          <th>Unique PIN</th>
+          <th>Branch & Section</th>
+          <th>Semester</th>
+          <th>Contact Phone</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for st in students %}
+          <tr>
+            <td><strong>{{ st.full_name }}</strong></td>
+            <td><code style="color: var(--secondary);">{{ st.pin }}</code></td>
+            <td>{{ st.branch }} (Sec {{ st.section }})</td>
+            <td>{{ st.semester }}</td>
+            <td>{{ st.contact_phone or '—' }}</td>
+            <td>
+              {% if st.is_active %}
+                <span class="badge badge-success">Active</span>
+              {% else %}
+                <span class="badge badge-danger">Inactive</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+              No students enrolled yet. Upload the Excel/CSV roster above.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

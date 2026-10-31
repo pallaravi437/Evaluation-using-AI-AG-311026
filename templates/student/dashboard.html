@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Student Dashboard - BEA AI Assessment System{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom: 2rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 1.6rem; font-weight: 700;">Welcome, {{ session.get('student_name') }}</h1>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">
+        Diploma in Electronics & Communication Engineering • PIN: <strong>{{ session.get('student_pin') }}</strong>
+      </p>
+    </div>
+    <div>
+      <span class="badge badge-success" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+        Active Student Session
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="card-header" style="margin-bottom: 1.5rem;">
+  <h2 class="card-title">📝 Available Assessments & Tests</h2>
+</div>
+
+<div class="grid grid-2">
+  {% for asm in assessments %}
+    <div class="card" style="border-left: 4px solid var(--primary); display: flex; flex-direction: column; justify-content: space-between;">
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+          <span class="badge badge-info">{{ asm.assessment_type | replace('_', ' ') | title }}</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">{{ asm.assessment_date }}</span>
+        </div>
+
+        <h3 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-main);">
+          {{ asm.title }}
+        </h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          {{ asm.instructions or 'Complete all handwritten questions and upload clear camera photos or scans.' }}
+        </p>
+
+        <div style="display: flex; gap: 1.5rem; font-size: 0.85rem; margin-bottom: 1.25rem; background: #0f172a; padding: 0.65rem 0.95rem; border-radius: var(--radius-sm);">
+          <div>
+            <span style="color: var(--text-muted);">Total Marks:</span>
+            <strong style="color: var(--text-main);">{{ asm.max_marks }}</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-muted);">Pass Criterion:</span>
+            <strong style="color: var(--text-main);">{{ asm.pass_percentage }}%</strong>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid var(--border); padding-top: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          {% if asm.user_submission_status in ['submitted', 'evaluated', 'approved'] %}
+            <span class="badge badge-success">✓ Submitted</span>
+          {% elif asm.user_submission_status == 'reopened' %}
+            <span class="badge badge-warning">🔄 Reopened by Teacher</span>
+          {% elif asm.user_submission_status == 'draft' %}
+            <span class="badge badge-warning">⏳ Draft in Progress</span>
+          {% else %}
+            <span class="badge badge-info">Pending Submission</span>
+          {% endif %}
+        </div>
+
+        <div>
+          {% if asm.user_submission_status in ['submitted', 'evaluated', 'approved'] %}
+            <a href="{{ url_for('student.submission_receipt', submission_id=asm.user_submission_id) }}" class="btn btn-secondary btn-sm">
+              📄 Receipt
+            </a>
+            {% if asm.results_published %}
+              <a href="{{ url_for('student.results', assessment_id=asm.id) }}" class="btn btn-primary btn-sm">
+                📊 View Results
+              </a>
+            {% endif %}
+          {% else %}
+            <a href="{{ url_for('student.upload_answers', assessment_id=asm.id) }}" class="btn btn-primary btn-sm">
+              Upload Script 📸
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="card" style="grid-column: span 2; text-align: center; padding: 3rem;">
+      <p style="color: var(--text-muted);">No assessments currently active for your branch.</p>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

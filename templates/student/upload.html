@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Answer Script - {{ assessment.title }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <span class="badge badge-info">{{ assessment.subject_code }}</span>
+      <h1 style="font-size: 1.5rem; font-weight: 700; margin-top: 0.35rem;">{{ assessment.title }}</h1>
+      <p style="color: var(--text-muted); font-size: 0.85rem;">
+        Total Marks: <strong>{{ assessment.max_marks }}</strong> • Max Upload Size per Page: <strong>10 MB</strong> (Automatically optimized)
+      </p>
+    </div>
+
+    <div>
+      <span class="badge badge-warning" id="draft-status-badge">
+        Draft Mode • Editing Unlocked
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Instructions Card -->
+<div class="card" style="background: rgba(15, 23, 42, 0.6); padding: 1rem 1.25rem;">
+  <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--secondary); margin-bottom: 0.35rem;">
+    📸 Handwritten Script & Circuit Diagram Upload Guidelines:
+  </h4>
+  <ul style="padding-left: 1.25rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+    <li>Ensure adequate lighting so circuit connections, pinouts, and mathematical subscripts are crisp.</li>
+    <li>Use the built-in <strong>Crop & Rotate</strong> tools to align pages right-side up.</li>
+    <li>All pages are compressed intelligently to ensure rapid AI evaluation while preserving 100% diagram legibility.</li>
+  </ul>
+</div>
+
+<!-- Question-wise Upload Sections -->
+<div style="display: flex; flex-direction: column; gap: 1.5rem;">
+  {% for q in assessment.questions %}
+    {% set q_id = q.id %}
+    {% set uploaded_pages = question_pages.get(q_id, []) %}
+    <div class="card" id="card-q-{{ q.question_number }}" style="border-top: 3px solid var(--secondary);">
+      <div class="card-header">
+        <div>
+          <span class="badge badge-primary">Question {{ q.question_number }}</span>
+          <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 0.5rem;">
+            [Max Marks: {{ q.max_marks }}]
+          </span>
+          {% if q.requires_diagram %}
+            <span class="badge badge-warning" style="margin-left: 0.5rem;">Requires Circuit Diagram</span>
+          {% endif %}
+        </div>
+
+        <div>
+          <span class="badge badge-secondary" id="page-count-badge-{{ q_id }}">
+            {{ uploaded_pages | length }} Page(s) Uploaded
+          </span>
+        </div>
+      </div>
+
+      <!-- Question Text -->
+      <div style="font-size: 1rem; color: var(--text-main); margin-bottom: 1.25rem; background: #0f172a; padding: 1rem; border-radius: var(--radius-sm); border-left: 3px solid var(--primary);">
+        {{ q.question_text }}
+      </div>
+
+      <!-- Upload Actions Bar -->
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+        <!-- Mobile Camera Capture Trigger -->
+        <label class="btn btn-primary btn-sm" style="cursor: pointer;">
+          📸 Take Photo (Camera)
+          <input type="file" accept="image/*" capture="environment" style="display: none;" onchange="handleFileSelect(event, '{{ q_id }}', '{{ q.question_number }}')">
+        </label>
+
+        <!-- Standard File / PDF Upload Trigger -->
+        <label class="btn btn-secondary btn-sm" style="cursor: pointer;">
+          📁 Choose File / Scan / PDF
+          <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" style="display: none;" onchange="handleFileSelect(event, '{{ q_id }}', '{{ q.question_number }}')">
+        </label>
+      </div>
+
+      <!-- Page Previews Container for this Question -->
+      <div id="pages-container-{{ q_id }}" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        {% for p in uploaded_pages %}
+          <div class="page-thumb-card" id="page-thumb-{{ p.id }}" style="background: #0f172a; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.5rem; width: 160px; text-align: center;">
+            <div style="height: 120px; background: #1e293b; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; margin-bottom: 0.5rem; overflow: hidden;">
+              <span style="font-size: 2rem;">📄</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+              Page {{ p.page_number }}
+            </div>
+            <div style="font-size: 0.7rem; color: #34d399;">
+              ✓ {{ (p.optimized_size_bytes / 1024) | round(1) }} KB
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Interactive Canvas Modal for Crop & Rotate -->
+<div id="editor-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 1rem;">
+  <div class="card" style="max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; background: var(--bg-card);">
+    <div class="card-header">
+      <h3 class="card-title">📐 Crop, Rotate & Optimize Script Page</h3>
+      <button onclick="closeEditorModal()" class="btn btn-sm btn-secondary">&times;</button>
+    </div>
+
+    <!-- Canvas Container -->
+    <div style="text-align: center; background: #0f172a; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; max-height: 50vh; overflow: auto;">
+      <canvas id="editor-canvas" style="max-width: 100%; height: auto; border: 1px dashed #64748b;"></canvas>
+    </div>
+
+    <!-- Controls Toolbar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+      <div style="display: flex; gap: 0.5rem;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="rotateCanvas(-90)">↺ Rotate 90° Left</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="rotateCanvas(90)">↻ Rotate 90° Right</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="autoDetectEdges()">✨ Auto Straighten</button>
+      </div>
+
+      <!-- Size Preview -->
+      <div style="font-size: 0.85rem; color: var(--text-muted);" id="size-preview-info">
+        Original: <span id="orig-size-label">—</span> • Target: <span id="opt-size-label">~350 KB</span>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+      <button type="button" class="btn btn-secondary" onclick="closeEditorModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" id="confirm-save-page-btn" onclick="uploadProcessedPage()">
+        ✓ Save Page & Compress
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Final Submission Confirmation Card -->
+<div class="card" style="border: 2px solid var(--primary); text-align: center; padding: 2rem; margin-top: 2rem;">
+  <h3 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem;">Ready to Finalize Your Submission?</h3>
+  <p style="color: var(--text-muted); font-size: 0.9rem; max-width: 600px; margin: 0 auto 1.5rem auto;">
+    Once you click <strong>SUBMIT ANSWERS</strong>, your submission will be strictly locked in the Supabase database. You will immediately receive your official timestamped receipt with Asia/Kolkata date and time.
+  </p>
+
+  <form action="{{ url_for('student.finalize_submission') }}" method="POST" onsubmit="return confirmFinalSubmission()">
+    <input type="hidden" name="submission_id" value="{{ submission.id }}">
+    <button type="submit" class="btn btn-success btn-lg" style="box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.4);">
+      🚀 SUBMIT ANSWERS (Lock & Get Receipt)
+    </button>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/student_upload.js') }}"></script>
+<script>
+  const CURRENT_SUBMISSION_ID = "{{ submission.id }}";
+  function confirmFinalSubmission() {
+    return confirm("Are you sure you want to finalize your submission? Your script will be locked for evaluation and cannot be altered.");
+  }
+</script>
+{% endblock %}

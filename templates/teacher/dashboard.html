@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}Lecturer Dashboard - BEA Assessment System{% endblock %}
+
+{% block content %}
+<!-- Top Header with Assessment Selector -->
+<div class="card" style="margin-bottom: 1.5rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 1.6rem; font-weight: 700;">Lecturer Operations Portal</h1>
+      <p style="color: var(--text-muted); font-size: 0.85rem;">
+        Subject: <strong>Basic Electronics and Amplifiers (BEA - C26_MEE-105)</strong> • Timezone: <strong>Asia/Kolkata</strong>
+      </p>
+    </div>
+
+    <!-- Assessment Dropdown Filter -->
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+      <form method="GET" action="{{ url_for('teacher.dashboard') }}" style="display: flex; gap: 0.5rem; align-items: center;">
+        <label for="asm_select" style="font-size: 0.85rem; color: var(--text-muted);">Active Assessment:</label>
+        <select id="asm_select" name="assessment_id" class="form-control" style="width: auto; padding: 0.4rem 0.75rem;" onchange="this.form.submit()">
+          {% for a in assessments %}
+            <option value="{{ a.id }}" {% if selected_assessment and selected_assessment.id == a.id %}selected{% endif %}>
+              {{ a.title }} (Max: {{ a.max_marks }})
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 3 MAIN SECTIONS PILLARS -->
+<div class="grid grid-3" style="margin-bottom: 2rem;">
+  
+  <!-- Pillar 1: Set Questions with Marks -->
+  <div class="card" style="border-top: 4px solid var(--primary); display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <span style="font-size: 1.5rem;">📝</span>
+        <span class="badge badge-primary">Section 1</span>
+      </div>
+      <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem;">Set Questions & Marks</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Configure slip tests, assignments, and unit tests with customizable total marks, rubrics, and model answers.
+      </p>
+    </div>
+    <a href="{{ url_for('teacher.manage_assessments') }}" class="btn btn-primary" style="width: 100%;">
+      Manage Questions →
+    </a>
+  </div>
+
+  <!-- Pillar 2: Evaluate Submissions -->
+  <div class="card" style="border-top: 4px solid var(--secondary); display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <span style="font-size: 1.5rem;">🤖</span>
+        <span class="badge badge-info">Section 2</span>
+      </div>
+      <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem;">Evaluate Submissions</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Trigger Gemini multimodal AI evaluations question-wise, verify handwritten circuits, and approve official marks.
+      </p>
+    </div>
+    <a href="#submissions-section" class="btn btn-secondary" style="width: 100%;">
+      View Submissions Table ↓
+    </a>
+  </div>
+
+  <!-- Pillar 3: Result Analysis Dashboard -->
+  <div class="card" style="border-top: 4px solid var(--success); display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <span style="font-size: 1.5rem;">📊</span>
+        <span class="badge badge-success">Section 3</span>
+      </div>
+      <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem;">Result Analysis Dashboard</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Class averages, pass percentages, student rankings, topic mastery graphs, and AI remedial recommendations.
+      </p>
+    </div>
+    {% if selected_assessment %}
+      <a href="{{ url_for('teacher.result_analytics', assessment_id=selected_assessment.id) }}" class="btn btn-success" style="width: 100%;">
+        Open Result Analyser →
+      </a>
+    {% else %}
+      <button class="btn btn-secondary" disabled style="width: 100%;">Select Assessment</button>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- SECTION 2: SUBMISSION TRACKER METRICS -->
+<div class="card-header" id="submissions-section">
+  <h2 class="card-title">
+    📋 Live Submission Tracking: {{ selected_assessment.title if selected_assessment else 'All Assessments' }}
+  </h2>
+</div>
+
+<!-- Key KPI Counter Cards -->
+<div class="grid grid-4" style="margin-bottom: 1.5rem;">
+  <div class="card" style="padding: 1rem; text-align: center;">
+    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Total Batch Students</div>
+    <div style="font-size: 1.8rem; font-weight: 800; color: var(--text-main);">{{ tracker.total_students }}</div>
+  </div>
+
+  <div class="card" style="padding: 1rem; text-align: center;">
+    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Scripts Submitted</div>
+    <div style="font-size: 1.8rem; font-weight: 800; color: #34d399;">
+      {{ tracker.submitted_count }}
+      <span style="font-size: 0.85rem; color: var(--text-muted);">({{ tracker.submission_percentage }}%)</span>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 1rem; text-align: center;">
+    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Not Submitted</div>
+    <div style="font-size: 1.8rem; font-weight: 800; color: #f87171;">{{ tracker.not_submitted_count }}</div>
+  </div>
+
+  <div class="card" style="padding: 1rem; text-align: center;">
+    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Lecturer Approved</div>
+    <div style="font-size: 1.8rem; font-weight: 800; color: var(--secondary);">
+      {{ tracker.approved_count }} / {{ tracker.submitted_count }}
+    </div>
+  </div>
+</div>
+
+<!-- Submissions Table -->
+<div class="card" style="padding: 0;">
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Student Name & PIN</th>
+          <th>Receipt Code</th>
+          <th>Pages Uploaded</th>
+          <th>Submitted Time (Asia/Kolkata)</th>
+          <th>Evaluation Status</th>
+          <th>Marks (AI / Approved)</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in submissions %}
+          {% set st = s.students or {} %}
+          <tr>
+            <td>
+              <strong>{{ st.full_name or 'Student' }}</strong>
+              <div style="font-size: 0.75rem; color: var(--secondary); font-family: monospace;">
+                {{ st.pin or '26054-MEE' }} • Sec {{ st.section or 'A' }}
+              </div>
+            </td>
+            <td>
+              <code style="color: var(--secondary); font-size: 0.8rem;">
+                {{ s.submission_receipt_code or 'DRAFT' }}
+              </code>
+            </td>
+            <td>
+              <span class="badge badge-info">{{ s.total_pages_uploaded or 0 }} Pages</span>
+            </td>
+            <td style="font-size: 0.85rem; color: var(--text-muted);">
+              {{ s.submitted_at | to_kolkata_time }}
+            </td>
+            <td>
+              {% if s.status == 'approved' %}
+                <span class="badge badge-success">✓ Lecturer Approved</span>
+              {% elif s.status == 'evaluated' %}
+                <span class="badge badge-warning">AI Evaluated (Pending Approval)</span>
+              {% elif s.status == 'submitted' %}
+                <span class="badge badge-info">Submitted (Awaiting AI)</span>
+              {% elif s.status == 'reopened' %}
+                <span class="badge badge-warning">🔄 Reopened</span>
+              {% else %}
+                <span class="badge badge-secondary">Draft</span>
+              {% endif %}
+            </td>
+            <td>
+              <strong>{{ s.official_total_marks if s.official_total_marks is not none else s.ai_total_marks or '—' }}</strong>
+              <span style="color: var(--text-muted); font-size: 0.8rem;">/ {{ selected_assessment.max_marks if selected_assessment else 20 }}</span>
+            </td>
+            <td>
+              <div style="display: flex; gap: 0.4rem;">
+                <a href="{{ url_for('teacher.evaluate_submission', submission_id=s.id) }}" class="btn btn-primary btn-sm">
+                  🔍 Evaluate / Review
+                </a>
+                
+                <!-- Reopen Button -->
+                {% if s.is_locked %}
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="promptReopen('{{ s.id }}', '{{ st.full_name }}')">
+                    Reopen
+                  </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+              No submissions recorded yet for this assessment.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal / Form for Reopening Submission -->
+<form id="reopen-form" action="{{ url_for('teacher.reopen_submission') }}" method="POST" style="display: none;">
+  <input type="hidden" name="submission_id" id="reopen-sub-id">
+  <input type="hidden" name="reason" id="reopen-reason">
+</form>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function promptReopen(subId, studentName) {
+    const reason = prompt(`Reopening submission for ${studentName}.\nPlease enter an audit reason (minimum 5 characters):`);
+    if (reason && reason.trim().length >= 5) {
+      document.getElementById('reopen-sub-id').value = subId;
+      document.getElementById('reopen-reason').value = reason.trim();
+      document.getElementById('reopen-form').submit();
+    } else if (reason !== null) {
+      alert("A valid audit reason is required to reopen locked submissions.");
+    }
+  }
+</script>
+{% endblock %}

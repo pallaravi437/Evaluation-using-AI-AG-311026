@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}BEA AI Assessment & Evaluation System{% endblock %}</title>
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js for Result Analyser -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Core CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a href="{{ url_for('index') }}" class="brand">
+      <span class="brand-badge">BEA AI</span>
+      <span>Answer Script Evaluation</span>
+    </a>
+
+    <nav>
+      <ul class="nav-links">
+        {% if session.get('role') == 'student' %}
+          <li><a href="{{ url_for('student.dashboard') }}" class="nav-link">Assessments</a></li>
+          <li>
+            <div class="user-badge">
+              <span>👤 {{ session.get('student_name', 'Student') }}</span>
+              <span class="badge badge-info">{{ session.get('student_pin', '') }}</span>
+            </div>
+          </li>
+          <li><a href="{{ url_for('student.logout') }}" class="btn btn-secondary btn-sm">Logout</a></li>
+        {% elif session.get('role') in ['lecturer', 'admin'] %}
+          <li><a href="{{ url_for('teacher.dashboard') }}" class="nav-link">Dashboard</a></li>
+          <li><a href="{{ url_for('teacher.manage_assessments') }}" class="nav-link">Set Questions</a></li>
+          <li><a href="{{ url_for('teacher.manage_students') }}" class="nav-link">Students</a></li>
+          <li><a href="{{ url_for('admin.settings') }}" class="nav-link">Settings ⚙️</a></li>
+          <li>
+            <div class="user-badge">
+              <span>👨‍🏫 {{ session.get('teacher_name', 'Lecturer') }}</span>
+            </div>
+          </li>
+          <li><a href="{{ url_for('teacher.logout') }}" class="btn btn-secondary btn-sm">Logout</a></li>
+        {% else %}
+          <li><a href="{{ url_for('student.login') }}" class="nav-link">Student Login</a></li>
+          <li><a href="{{ url_for('teacher.login') }}" class="nav-link">Lecturer Login</a></li>
+        {% endif %}
+      </ul>
+    </nav>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="container">
+    <!-- Flash Notifications -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-container">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+              <span>{{ message }}</span>
+              <button onclick="this.parentElement.remove()" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.1rem;">&times;</button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}
+      {% if error_title %}
+        <div class="card" style="text-align: center; padding: 3rem 1.5rem;">
+          <h2 style="margin-bottom: 0.5rem; color: var(--danger);">{{ error_title }}</h2>
+          <p style="color: var(--text-muted); margin-bottom: 1.5rem;">{{ error_message }}</p>
+          <a href="{{ url_for('index') }}" class="btn btn-primary">Return to Home</a>
+        </div>
+      {% endif %}
+    {% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>Basic Electronics and Amplifiers (BEA - C26_MEE-105) • Target: 1 Lecturer & 60–70 Diploma Students</p>
+    <p style="margin-top: 0.25rem; font-size: 0.75rem; color: #64748b;">
+      Server Timezone: Asia/Kolkata • Powered by Gemini AI Multimodal Evaluation & Supabase PostgreSQL
+    </p>
+  </footer>
+
+  <!-- Core JavaScript -->
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

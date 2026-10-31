@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Assessments & Question Rubrics - BEA{% endblock %}
+
+{% block content %}
+<div class="card-header">
+  <div>
+    <h1 class="card-title">📝 Assessment & Question Bank Management</h1>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+      Configure tests, question rubrics, acceptable alternatives, and model answers for BEA (MEE-105).
+    </p>
+  </div>
+  <button onclick="document.getElementById('create-asm-modal').style.display='flex'" class="btn btn-primary">
+    + Create New Assessment
+  </button>
+</div>
+
+<!-- Existing Assessments Grid -->
+<div class="grid grid-2" style="margin-bottom: 2rem;">
+  {% for asm in assessments %}
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+        <span class="badge badge-info">{{ asm.assessment_type | replace('_', ' ') | title }}</span>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">{{ asm.assessment_date }}</span>
+      </div>
+
+      <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">
+        {{ asm.title }}
+      </h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        {{ asm.instructions or 'No custom instructions configured.' }}
+      </p>
+
+      <div style="display: flex; gap: 1.5rem; font-size: 0.85rem; background: #0f172a; padding: 0.65rem 0.95rem; border-radius: var(--radius-sm); margin-bottom: 1rem;">
+        <div>
+          <span style="color: var(--text-muted);">Max Marks:</span>
+          <strong>{{ asm.max_marks }}</strong>
+        </div>
+        <div>
+          <span style="color: var(--text-muted);">Pass %:</span>
+          <strong>{{ asm.pass_percentage }}%</strong>
+        </div>
+        <div>
+          <span style="color: var(--text-muted);">Status:</span>
+          <span class="badge badge-success">{{ asm.status | upper }}</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+        <a href="{{ url_for('teacher.dashboard', assessment_id=asm.id) }}" class="btn btn-secondary btn-sm">
+          Track Submissions →
+        </a>
+      </div>
+    </div>
+  {% else %}
+    <div class="card" style="grid-column: span 2; text-align: center; padding: 3rem;">
+      <p style="color: var(--text-muted);">No assessments created yet. Click '+ Create New Assessment' above.</p>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Modal for Assessment Creation -->
+<div id="create-asm-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 1rem;">
+  <div class="card" style="max-width: 650px; width: 100%; max-height: 90vh; overflow-y: auto;">
+    <div class="card-header">
+      <h3 class="card-title">Create Assessment</h3>
+      <button onclick="document.getElementById('create-asm-modal').style.display='none'" class="btn btn-sm btn-secondary">&times;</button>
+    </div>
+
+    <form action="{{ url_for('teacher.manage_assessments') }}" method="POST">
+      <div class="form-group">
+        <label class="form-label" for="asm_title">Assessment Name</label>
+        <input type="text" id="asm_title" name="title" class="form-control" placeholder="e.g. Slip Test 2: BJT Biasing & Thermal Stability" required>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label class="form-label" for="assessment_type">Assessment Type</label>
+          <select id="assessment_type" name="assessment_type" class="form-control">
+            <option value="slip_test">Slip Test</option>
+            <option value="assignment">Assignment</option>
+            <option value="unit_test">Unit Test</option>
+            <option value="internal_assessment">Internal Assessment</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="assessment_date">Assessment Date</label>
+          <input type="date" id="assessment_date" name="assessment_date" class="form-control" required>
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label class="form-label" for="max_marks">Maximum Total Marks</label>
+          <input type="number" id="max_marks" name="max_marks" class="form-control" value="20" min="1" max="100" step="0.5" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pass_percentage">Pass Percentage (%)</label>
+          <input type="number" id="pass_percentage" name="pass_percentage" class="form-control" value="35" min="0" max="100" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="instructions">Instructions for Students</label>
+        <textarea id="instructions" name="instructions" class="form-control" rows="3" placeholder="Answer all questions. Draw clear circuit schematics with terminal current arrows and polarity signs."></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-asm-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Assessment →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

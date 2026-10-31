@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Sign In - BEA AI Assessment System{% endblock %}
+
+{% block content %}
+<div style="max-width: 480px; margin: 2.5rem auto;">
+  <div class="card" style="padding: 2rem;">
+    
+    <!-- Tab Controls -->
+    <div style="display: flex; gap: 0.5rem; background: #0f172a; padding: 0.35rem; border-radius: var(--radius-md); margin-bottom: 1.75rem;">
+      <button id="tab-student-btn" onclick="switchLoginTab('student')" class="btn btn-sm" style="flex: 1; background: {% if active_tab != 'teacher' %}var(--primary){% else %}transparent{% endif %}; color: white;">
+        🎓 Student PIN Login
+      </button>
+      <button id="tab-teacher-btn" onclick="switchLoginTab('teacher')" class="btn btn-sm" style="flex: 1; background: {% if active_tab == 'teacher' %}var(--primary){% else %}transparent{% endif %}; color: white;">
+        👨‍🏫 Lecturer Login
+      </button>
+    </div>
+
+    <!-- Student PIN Login Form -->
+    <div id="student-form-pane" style="display: {% if active_tab == 'teacher' %}none{% else %}block{% endif %};">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.4rem; font-weight: 700;">Student Assessment Portal</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.35rem;">
+          Enter your registered Name and unique Diploma PIN. No password or OTP required.
+        </p>
+      </div>
+
+      <form action="{{ url_for('student.login') }}" method="POST">
+        <div class="form-group">
+          <label class="form-label" for="student_name">Registered Student Name</label>
+          <input type="text" id="student_name" name="name" class="form-control" placeholder="e.g. KASHABOINA PRANAVI" required autofocus>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="student_pin">Unique Student PIN</label>
+          <input type="text" id="student_pin" name="pin" class="form-control" placeholder="e.g. 26054-ES-041" style="text-transform: uppercase;" required>
+          <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.35rem;">
+            🔒 5 failed attempts will initiate a temporary 15-minute security lockout.
+          </small>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.75rem;">
+          Access Assessment Portal →
+        </button>
+      </form>
+
+      <div style="margin-top: 1.5rem; padding: 0.75rem; background: rgba(79, 70, 229, 0.08); border-radius: var(--radius-sm); font-size: 0.8rem; color: #a5b4fc;">
+        💡 <strong>Demo Quick Test:</strong> Use name <code>KASHABOINA PRANAVI</code> and PIN <code>26054-ES-041</code> or <code>26054-CPS-001</code>.
+      </div>
+    </div>
+
+    <!-- Teacher / Lecturer Login Form -->
+    <div id="teacher-form-pane" style="display: {% if active_tab == 'teacher' %}block{% else %}none{% endif %};">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.4rem; font-weight: 700;">Lecturer Administration</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.35rem;">
+          Manage question banks, supervise submissions, and verify marks.
+        </p>
+      </div>
+
+      <form action="{{ url_for('teacher.login') }}" method="POST">
+        <div class="form-group">
+          <label class="form-label" for="teacher_email">Lecturer Email</label>
+          <input type="email" id="teacher_email" name="email" class="form-control" placeholder="lecturer@bea.edu" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="teacher_password">Password</label>
+          <input type="password" id="teacher_password" name="password" class="form-control" placeholder="••••••••" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.75rem;">
+          Lecturer Sign In →
+        </button>
+      </form>
+
+      <div style="margin-top: 1.5rem; padding: 0.75rem; background: rgba(16, 185, 129, 0.08); border-radius: var(--radius-sm); font-size: 0.8rem; color: #6ee7b7;">
+        🔑 <strong>Initial Admin Setup:</strong> <code>lecturer@bea.edu</code> / password: <code>admin123</code>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function switchLoginTab(tab) {
+    const studentPane = document.getElementById('student-form-pane');
+    const teacherPane = document.getElementById('teacher-form-pane');
+    const studentBtn = document.getElementById('tab-student-btn');
+    const teacherBtn = document.getElementById('tab-teacher-btn');
+
+    if (tab === 'teacher') {
+      studentPane.style.display = 'none';
+      teacherPane.style.display = 'block';
+      teacherBtn.style.background = 'var(--primary)';
+      studentBtn.style.background = 'transparent';
+    } else {
+      teacherPane.style.display = 'none';
+      studentPane.style.display = 'block';
+      studentBtn.style.background = 'var(--primary)';
+      teacherBtn.style.background = 'transparent';
+    }
+  }
+</script>
+{% endblock %}
