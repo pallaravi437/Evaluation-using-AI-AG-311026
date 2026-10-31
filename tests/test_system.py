@@ -189,4 +189,82 @@ def test_download_word_template():
     assert "wordprocessingml" in res.content_type
 
 
+def test_edit_student_profile():
+    from app import app
+    from services.student_service import StudentService
+    client = app.test_client()
+
+    with client.session_transaction() as sess:
+        sess["teacher_id"] = "test-teacher-id"
+        sess["teacher_name"] = "Dr. Test Lecturer"
+        sess["role"] = "lecturer"
+
+    students = StudentService.get_all_students()
+    assert len(students) > 0
+    target_pin = students[0]["pin"]
+
+    edit_data = {
+        "pin": target_pin,
+        "full_name": "KASHABOINA PRANAVI (TOPPER)",
+        "branch": "ECE",
+        "section": "A1",
+        "semester": "Semester 2",
+        "academic_year": "2026-2027",
+        "contact_phone": "9998887776",
+        "contact_email": "topper@example.com",
+        "is_active": "1"
+    }
+
+    res = client.post(
+        f"/teacher/students/edit/{target_pin}",
+        data=edit_data,
+        follow_redirects=True
+    )
+    assert res.status_code == 200
+    assert b"updated successfully" in res.data or b"TOPPER" in res.data
+
+
+def test_edit_preview_student():
+    from app import app
+    client = app.test_client()
+
+    with client.session_transaction() as sess:
+        sess["teacher_id"] = "test-teacher-id"
+        sess["teacher_name"] = "Dr. Test Lecturer"
+        sess["role"] = "lecturer"
+        sess["pending_roster_import"] = [
+            {
+                "row_number": 2,
+                "pin": "26054-ES-099",
+                "full_name": "SAMPLE TYPO STUDENT",
+                "academic_year": "2026-2027",
+                "semester": "Semester 1",
+                "branch": "ECE",
+                "section": "A",
+                "contact_phone": "1234567890",
+                "contact_email": ""
+            }
+        ]
+
+    edit_preview_data = {
+        "pin": "26054-ES-099",
+        "full_name": "SAMPLE CORRECTED STUDENT",
+        "academic_year": "2026-2027",
+        "semester": "Semester 1",
+        "branch": "ECE",
+        "section": "B",
+        "contact_phone": "9876543210",
+        "contact_email": "corrected@example.com"
+    }
+
+    res = client.post(
+        "/teacher/students/edit-preview/0",
+        data=edit_preview_data,
+        follow_redirects=True
+    )
+    assert res.status_code == 200
+    assert b"updated" in res.data or b"CORRECTED" in res.data
+
+
+
 

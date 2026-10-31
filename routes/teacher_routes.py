@@ -353,6 +353,49 @@ def confirm_student_import():
     flash(f"Import complete! {summary['inserted']} students successfully saved.", "success")
     return redirect(url_for("teacher.manage_students"))
 
+@teacher_bp.route("/students/edit/<student_id>", methods=["POST"])
+@teacher_required
+def edit_student(student_id):
+    """Updates an existing student profile from the Registered Students Roster."""
+    data = {
+        "pin": request.form.get("pin", "").strip().upper(),
+        "full_name": request.form.get("full_name", "").strip(),
+        "academic_year": request.form.get("academic_year", "2026-2027").strip(),
+        "semester": request.form.get("semester", "Semester 1").strip(),
+        "branch": request.form.get("branch", "ECE").strip(),
+        "section": request.form.get("section", "A").strip(),
+        "contact_phone": request.form.get("contact_phone", "").strip(),
+        "contact_email": request.form.get("contact_email", "").strip(),
+        "is_active": request.form.get("is_active") == "1"
+    }
+    success, msg = StudentService.update_student(student_id, data)
+    if success:
+        flash(f"Student profile for {data['pin'] or student_id} updated successfully.", "success")
+    else:
+        flash(f"Failed to update student: {msg}", "danger")
+    return redirect(url_for("teacher.manage_students"))
+
+@teacher_bp.route("/students/edit-preview/<int:row_idx>", methods=["POST"])
+@teacher_required
+def edit_preview_student(row_idx):
+    """Updates a row in the pending import preview list before committing."""
+    pending = session.get("pending_roster_import", [])
+    if 0 <= row_idx < len(pending):
+        pending[row_idx]["pin"] = request.form.get("pin", pending[row_idx].get("pin", "")).strip().upper()
+        pending[row_idx]["full_name"] = request.form.get("full_name", pending[row_idx].get("full_name", "")).strip()
+        pending[row_idx]["academic_year"] = request.form.get("academic_year", pending[row_idx].get("academic_year", "2026-2027")).strip()
+        pending[row_idx]["semester"] = request.form.get("semester", pending[row_idx].get("semester", "Semester 1")).strip()
+        pending[row_idx]["branch"] = request.form.get("branch", pending[row_idx].get("branch", "ECE")).strip()
+        pending[row_idx]["section"] = request.form.get("section", pending[row_idx].get("section", "A")).strip()
+        pending[row_idx]["contact_phone"] = request.form.get("contact_phone", pending[row_idx].get("contact_phone", "")).strip()
+        pending[row_idx]["contact_email"] = request.form.get("contact_email", pending[row_idx].get("contact_email", "")).strip()
+        session["pending_roster_import"] = pending
+        session.modified = True
+        flash(f"Preview record #{row_idx + 1} ({pending[row_idx]['pin']}) updated.", "info")
+    else:
+        flash("Invalid preview row index.", "warning")
+    return redirect(url_for("teacher.manage_students"))
+
 @teacher_bp.route("/students/template")
 @teacher_required
 def download_student_template():

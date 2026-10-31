@@ -509,3 +509,52 @@ class StudentService:
             except Exception as e:
                 logger.error(f"Error fetching students: {e}")
         return _local_students
+
+    @classmethod
+    def update_student(cls, student_id: str, student_data: Dict[str, Any]) -> Tuple[bool, str]:
+        """Updates a student's profile information in Supabase or local store."""
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                record = {
+                    "full_name": student_data.get("full_name", "").strip(),
+                    "academic_year": student_data.get("academic_year", "2026-2027").strip(),
+                    "semester": student_data.get("semester", "Semester 1").strip(),
+                    "branch": student_data.get("branch", "ECE").strip(),
+                    "section": student_data.get("section", "A").strip(),
+                    "contact_phone": student_data.get("contact_phone", "").strip(),
+                    "contact_email": student_data.get("contact_email", "").strip(),
+                    "is_active": bool(student_data.get("is_active", True))
+                }
+                if student_data.get("pin"):
+                    record["pin"] = student_data["pin"].strip().upper()
+
+                res = supabase.table("students").update(record).eq("id", student_id).execute()
+                if not (res.data if hasattr(res, "data") else None):
+                    supabase.table("students").update(record).eq("pin", student_id).execute()
+                return True, "Student details updated successfully."
+            except Exception as e:
+                logger.error(f"Error updating student {student_id}: {e}")
+                return False, str(e)
+
+        # Local mode
+        for st in _local_students:
+            if st.get("id") == student_id or st.get("pin") == student_id:
+                if student_data.get("pin"):
+                    st["pin"] = student_data["pin"].strip().upper()
+                if student_data.get("full_name"):
+                    st["full_name"] = student_data["full_name"].strip()
+                if student_data.get("branch"):
+                    st["branch"] = student_data["branch"].strip()
+                if student_data.get("section"):
+                    st["section"] = student_data["section"].strip()
+                if student_data.get("semester"):
+                    st["semester"] = student_data["semester"].strip()
+                if student_data.get("academic_year"):
+                    st["academic_year"] = student_data["academic_year"].strip()
+                st["contact_phone"] = student_data.get("contact_phone", "").strip()
+                st["contact_email"] = student_data.get("contact_email", "").strip()
+                if "is_active" in student_data:
+                    st["is_active"] = bool(student_data["is_active"])
+                return True, "Student details updated (Local mode)."
+        return False, "Student not found."
