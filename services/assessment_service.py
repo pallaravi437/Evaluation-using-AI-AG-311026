@@ -167,6 +167,65 @@ class AssessmentService:
         return True, q_id, "Question added (Local mode)."
 
     @classmethod
+    def update_question(cls, assessment_id: str, question_id: str, question_data: Dict[str, Any]) -> Tuple[bool, str]:
+        """Updates an existing question and its marking rubric criteria."""
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                q_row = {
+                    "question_number": question_data.get("question_number", "1"),
+                    "question_text": question_data.get("question_text", "").strip(),
+                    "max_marks": float(question_data.get("max_marks", 5.0)),
+                    "model_answer": question_data.get("model_answer", "").strip(),
+                    "acceptable_alternatives": question_data.get("acceptable_alternatives", "").strip(),
+                    "difficulty": question_data.get("difficulty", "medium"),
+                    "requires_diagram": bool(question_data.get("requires_diagram", False)),
+                    "requires_numerical": bool(question_data.get("requires_numerical", False)),
+                }
+                if question_data.get("question_image_url"):
+                    q_row["question_image_url"] = question_data["question_image_url"]
+
+                supabase.table("questions").update(q_row).eq("id", question_id).execute()
+
+                # Update criteria
+                criteria = question_data.get("criteria", [])
+                if criteria:
+                    supabase.table("marking_criteria").delete().eq("question_id", question_id).execute()
+                    for idx, c in enumerate(criteria, start=1):
+                        supabase.table("marking_criteria").insert({
+                            "question_id": question_id,
+                            "criterion_order": idx,
+                            "criterion_title": c.get("criterion_title", f"Criterion {idx}").strip(),
+                            "max_marks": float(c.get("max_marks", 1.0)),
+                            "description": c.get("description", "").strip()
+                        }).execute()
+                return True, "Question updated successfully."
+            except Exception as e:
+                logger.error(f"Error updating question: {e}")
+                return False, str(e)
+
+        # Local mode
+        if assessment_id in _local_questions:
+            for q in _local_questions[assessment_id]:
+                if q.get("id") == question_id:
+                    q["question_number"] = question_data.get("question_number", q.get("question_number"))
+                    q["question_text"] = question_data.get("question_text", q.get("question_text"))
+                    q["max_marks"] = float(question_data.get("max_marks", q.get("max_marks", 5.0)))
+                    q["model_answer"] = question_data.get("model_answer", q.get("model_answer"))
+                    q["acceptable_alternatives"] = question_data.get("acceptable_alternatives", q.get("acceptable_alternatives"))
+                    q["difficulty"] = question_data.get("difficulty", q.get("difficulty"))
+                    q["requires_diagram"] = bool(question_data.get("requires_diagram", False))
+                    q["requires_numerical"] = bool(question_data.get("requires_numerical", False))
+                    if question_data.get("question_image_url"):
+                        q["question_image_url"] = question_data["question_image_url"]
+                    if question_data.get("criteria"):
+                        q["marking_criteria"] = question_data["criteria"]
+                        q["criteria"] = question_data["criteria"]
+                    return True, "Question updated (Local mode)."
+            return False, "Question not found."
+        return False, "Assessment not found."
+
+    @classmethod
     def delete_question(cls, assessment_id: str, question_id: str) -> Tuple[bool, str]:
         """Deletes a question from an assessment."""
         supabase = db_manager.get_supabase(use_service_role=True)

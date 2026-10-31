@@ -105,3 +105,42 @@ def test_add_question_with_image():
     assert res.status_code == 200
     assert b"Question 99" in res.data or b"successfully" in res.data
 
+
+def test_edit_question_and_rubric():
+    from app import app
+    from services.assessment_service import AssessmentService
+    client = app.test_client()
+
+    with client.session_transaction() as sess:
+        sess["teacher_id"] = "test-teacher-id"
+        sess["teacher_name"] = "Dr. Test Lecturer"
+        sess["role"] = "lecturer"
+
+    # Get existing question
+    assessment = AssessmentService.get_assessment_by_id("bea-test-unit-001")
+    assert assessment and len(assessment["questions"]) > 0
+    target_q = assessment["questions"][0]
+
+    edit_data = {
+        "question_number": target_q["question_number"],
+        "question_text": "Updated Question Text - Verify CE Configuration Analysis.",
+        "max_marks": "10",
+        "model_answer": "Updated model answer with derivation steps.",
+        "acceptable_alternatives": "Equivalent Kirchhoff voltage analysis.",
+        "difficulty": "hard",
+        "requires_diagram": "1",
+        "criterion_title": ["Updated Diagram Criterion", "Updated Calculation"],
+        "criterion_marks": ["6", "4"],
+        "criterion_desc": ["Biasing polarity check", "Formula substitution"]
+    }
+
+    res = client.post(
+        f"/teacher/assessment/bea-test-unit-001/edit-question/{target_q['id']}",
+        data=edit_data,
+        content_type="multipart/form-data",
+        follow_redirects=True
+    )
+    assert res.status_code == 200
+    assert b"updated successfully" in res.data or b"Updated Question Text" in res.data
+
+

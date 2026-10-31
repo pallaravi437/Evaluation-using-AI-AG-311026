@@ -230,6 +230,77 @@ def add_question(assessment_id):
 
     return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
 
+@teacher_bp.route("/assessment/<assessment_id>/edit-question/<question_id>", methods=["POST"])
+@teacher_required
+def edit_question(assessment_id, question_id):
+    """Updates an existing question, attached diagram/figure, and rubric criteria."""
+    q_num = request.form.get("question_number", "1").strip()
+    q_text = request.form.get("question_text", "").strip()
+    try:
+        max_m = float(request.form.get("max_marks", 5.0))
+    except (ValueError, TypeError):
+        max_m = 5.0
+    model_ans = request.form.get("model_answer", "").strip()
+    alternatives = request.form.get("acceptable_alternatives", "").strip()
+    difficulty = request.form.get("difficulty", "medium")
+    req_diagram = bool(request.form.get("requires_diagram"))
+    req_numerical = bool(request.form.get("requires_numerical"))
+
+    # Parse rubric criteria lists
+    crit_titles = request.form.getlist("criterion_title") or request.form.getlist("criterion_title[]")
+    crit_marks = request.form.getlist("criterion_marks") or request.form.getlist("criterion_marks[]")
+    descs = request.form.getlist("criterion_desc") or request.form.getlist("criterion_desc[]")
+
+    criteria = []
+    for i, t in enumerate(crit_titles):
+        t = t.strip()
+        if t:
+            try:
+                m = float(crit_marks[i]) if i < len(crit_marks) else 1.0
+            except ValueError:
+                m = 1.0
+            d = descs[i].strip() if i < len(descs) else ""
+            criteria.append({"criterion_title": t, "max_marks": m, "description": d})
+
+    # Handle optional replacement of question reference image
+    img_file = request.files.get("question_image")
+    image_url = ""
+    if img_file and img_file.filename:
+        valid, opt_bytes, metadata, _ = ImageService.validate_and_process_upload(img_file)
+        if valid and opt_bytes:
+            safe_num = "".join(c for c in q_num if c.isalnum()) or "1"
+            mime = (metadata or {}).get("mime_type", "image/jpeg")
+            ext = ".svg" if mime == "image/svg+xml" else (".png" if mime == "image/png" else ".jpg")
+            filename = f"q_{assessment_id[:8]}_{safe_num}_{int(datetime.now().timestamp())}{ext}"
+            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "uploads", "questions")
+            os.makedirs(upload_dir, exist_ok=True)
+            filepath = os.path.join(upload_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(opt_bytes)
+            image_url = f"/static/uploads/questions/{filename}"
+
+    q_data = {
+        "question_number": q_num,
+        "question_text": q_text,
+        "max_marks": max_m,
+        "model_answer": model_ans,
+        "acceptable_alternatives": alternatives,
+        "difficulty": difficulty,
+        "requires_diagram": req_diagram,
+        "requires_numerical": req_numerical,
+        "criteria": criteria
+    }
+    if image_url:
+        q_data["question_image_url"] = image_url
+
+    success, msg = AssessmentService.update_question(assessment_id, question_id, q_data)
+    if success:
+        flash(f"Question {q_num} and its marking rubric updated successfully!", "success")
+    else:
+        flash(f"Failed to update question: {msg}", "danger")
+
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
 @teacher_bp.route("/assessment/<assessment_id>/delete-question/<question_id>", methods=["POST"])
 @teacher_required
 def delete_question(assessment_id, question_id):

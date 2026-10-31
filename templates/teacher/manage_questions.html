@@ -54,7 +54,8 @@
           {% endif %}
         </div>
 
-        <div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openEditModal('{{ q.id }}')">✏️ Edit</button>
           <form action="{{ url_for('teacher.delete_question', assessment_id=assessment.id, question_id=q.id) }}" method="POST" onsubmit="return confirm('Delete Question {{ q.question_number }}?')">
             <button type="submit" class="btn btn-danger btn-sm">Delete</button>
           </form>
@@ -220,10 +221,109 @@
     </form>
   </div>
 </div>
+
+<!-- Modal: Edit Question & Rubric -->
+<div id="edit-question-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 1rem;">
+  <div class="card" style="max-width: 780px; width: 100%; max-height: 90vh; overflow-y: auto;">
+    <div class="card-header">
+      <h3 class="card-title">✏️ Edit Question & Marking Rubric</h3>
+      <button onclick="document.getElementById('edit-question-modal').style.display='none'" class="btn btn-sm btn-secondary">&times;</button>
+    </div>
+
+    <form id="edit-question-form" method="POST" enctype="multipart/form-data">
+      
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label class="form-label" for="edit_q_number">Question Number</label>
+          <input type="text" id="edit_q_number" name="question_number" class="form-control" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="edit_q_marks">Marks for this Question</label>
+          <input type="number" id="edit_q_marks" name="max_marks" class="form-control" min="0.5" max="50" step="0.5" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="edit_q_text">Question Statement</label>
+        <textarea id="edit_q_text" name="question_text" class="form-control" rows="3" required></textarea>
+      </div>
+
+      <!-- Current Image Preview & Upload to Replace -->
+      <div class="form-group" style="background: rgba(255, 255, 255, 0.02); padding: 0.85rem; border: 1px dashed var(--border); border-radius: var(--radius-sm);">
+        <label class="form-label" for="edit_question_image" style="display: flex; align-items: center; gap: 0.4rem;">
+          <span>📸 Question Reference Image / Circuit Diagram</span>
+        </label>
+        <div id="edit-current-image-preview" style="display: none; margin-bottom: 0.75rem;">
+          <small style="color: #6ee7b7; display: block; margin-bottom: 0.25rem;">Current Attached Image:</small>
+          <img id="edit-preview-img-tag" src="" alt="Current Figure" style="max-height: 140px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: #0f172a;">
+        </div>
+        <input type="file" id="edit_question_image" name="question_image" class="form-control" accept="image/jpeg,image/png,image/webp,image/svg+xml">
+        <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.35rem;">
+          Leave empty to keep existing figure, or select a new file (.png, .jpg, .webp, .svg) to replace it.
+        </small>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="edit_model_ans">Official Model Answer (Used by Gemini Multimodal AI)</label>
+        <textarea id="edit_model_ans" name="model_answer" class="form-control" rows="3" required></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="edit_acceptable_alt">Acceptable Alternative Answers / Derivations</label>
+        <input type="text" id="edit_acceptable_alt" name="acceptable_alternatives" class="form-control">
+      </div>
+
+      <div class="grid grid-3">
+        <div class="form-group">
+          <label class="form-label" for="edit_difficulty">Difficulty Level</label>
+          <select id="edit_difficulty" name="difficulty" class="form-control">
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
+          <input type="checkbox" id="edit_requires_diagram" name="requires_diagram" value="1">
+          <label for="edit_requires_diagram" style="font-size: 0.85rem;">Requires Circuit Diagram</label>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
+          <input type="checkbox" id="edit_requires_numerical" name="requires_numerical" value="1">
+          <label for="edit_requires_numerical" style="font-size: 0.85rem;">Requires Numerical Work</label>
+        </div>
+      </div>
+
+      <!-- DYNAMIC RUBRIC CRITERIA BUILDER (EDIT) -->
+      <div style="background: #0f172a; padding: 1rem; border-radius: var(--radius-md); margin-top: 1rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div>
+            <strong style="color: var(--secondary); font-size: 0.9rem;">Marking Criteria Rubric</strong>
+            <small style="color: var(--text-muted); display: block;">Adjust criteria breakdown</small>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addEditCriterionRow()">+ Add Criterion</button>
+        </div>
+
+        <div id="edit-criteria-rows-container" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <!-- Dynamically populated rows -->
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('edit-question-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update Question & Rubric →</button>
+      </div>
+
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+  const assessmentQuestions = {{ assessment.questions | tojson }};
+
   function addCriterionRow() {
     const container = document.getElementById("criteria-rows-container");
     const div = document.createElement("div");
@@ -236,6 +336,71 @@
       <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="padding: 0.4rem 0.6rem;">&times;</button>
     `;
     container.appendChild(div);
+  }
+
+  function openEditModal(qId) {
+    const q = assessmentQuestions.find(item => String(item.id) === String(qId));
+    if (!q) return;
+
+    const form = document.getElementById("edit-question-form");
+    form.action = `/teacher/assessment/{{ assessment.id }}/edit-question/${q.id}`;
+
+    document.getElementById("edit_q_number").value = q.question_number || "";
+    document.getElementById("edit_q_marks").value = q.max_marks || 5;
+    document.getElementById("edit_q_text").value = q.question_text || "";
+    document.getElementById("edit_model_ans").value = q.model_answer || "";
+    document.getElementById("edit_acceptable_alt").value = q.acceptable_alternatives || "";
+    document.getElementById("edit_difficulty").value = q.difficulty || "medium";
+    document.getElementById("edit_requires_diagram").checked = Boolean(q.requires_diagram);
+    document.getElementById("edit_requires_numerical").checked = Boolean(q.requires_numerical);
+
+    const previewContainer = document.getElementById("edit-current-image-preview");
+    const previewImg = document.getElementById("edit-preview-img-tag");
+    if (q.question_image_url) {
+      previewImg.src = q.question_image_url;
+      previewContainer.style.display = "block";
+    } else {
+      previewImg.src = "";
+      previewContainer.style.display = "none";
+    }
+
+    // Populate criteria
+    const criteriaContainer = document.getElementById("edit-criteria-rows-container");
+    criteriaContainer.innerHTML = "";
+    const criteriaList = q.marking_criteria || q.criteria || [];
+    if (criteriaList.length > 0) {
+      criteriaList.forEach(c => {
+        addEditCriterionRow(c.criterion_title || "", c.max_marks || 1.0, c.description || "");
+      });
+    } else {
+      addEditCriterionRow("Main Solution", q.max_marks || 5.0, "Complete and correct steps");
+    }
+
+    document.getElementById("edit-question-modal").style.display = "flex";
+  }
+
+  function addEditCriterionRow(title = "", marks = "1.0", desc = "") {
+    const container = document.getElementById("edit-criteria-rows-container");
+    const div = document.createElement("div");
+    div.className = "criterion-row";
+    div.style.cssText = "display: flex; gap: 0.5rem; align-items: center;";
+    div.innerHTML = `
+      <input type="text" name="criterion_title[]" class="form-control" placeholder="Criterion title" style="flex: 2;" value="${escapeHtml(title)}" required>
+      <input type="number" name="criterion_marks[]" class="form-control" placeholder="Marks" style="width: 90px;" step="0.5" value="${marks}" required>
+      <input type="text" name="criterion_desc[]" class="form-control" placeholder="Description/keywords" style="flex: 2;" value="${escapeHtml(desc)}">
+      <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="padding: 0.4rem 0.6rem;">&times;</button>
+    `;
+    container.appendChild(div);
+  }
+
+  function escapeHtml(text) {
+    if (!text) return "";
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   }
 </script>
 {% endblock %}
