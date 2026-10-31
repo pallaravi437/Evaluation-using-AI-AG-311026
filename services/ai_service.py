@@ -86,8 +86,29 @@ class AIService:
         prompt_text = cls._build_evaluation_prompt(question_data, marking_criteria)
 
         try:
-            # Prepare image parts
+            # Prepare contents
             contents = [instructions, prompt_text]
+
+            # If question has an attached reference diagram / figure, attach it for Gemini
+            q_img_url = question_data.get("question_image_url")
+            if q_img_url and isinstance(q_img_url, str):
+                base_dir = os.path.dirname(os.path.dirname(__file__))
+                local_path = os.path.join(base_dir, q_img_url.lstrip("/").replace("/", os.sep))
+                if os.path.exists(local_path):
+                    try:
+                        mime = "image/png" if local_path.endswith(".png") else ("image/webp" if local_path.endswith(".webp") else "image/jpeg")
+                        if not local_path.endswith(".svg"):
+                            with open(local_path, "rb") as qf:
+                                q_bytes = qf.read()
+                            contents.append("Official Question Reference Diagram / Figure:")
+                            contents.append({
+                                "mime_type": mime,
+                                "data": base64.b64encode(q_bytes).decode("utf-8")
+                            })
+                    except Exception as img_err:
+                        logger.warning(f"Could not load question reference image: {img_err}")
+
+            contents.append("Student Handwritten Answer Script Pages to evaluate:")
             
             for idx, page in enumerate(page_images, start=1):
                 img_bytes = page.get("bytes")

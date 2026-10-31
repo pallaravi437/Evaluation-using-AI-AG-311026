@@ -190,6 +190,23 @@ def add_question(assessment_id):
             d = descs[i].strip() if i < len(descs) else ""
             criteria.append({"criterion_title": t, "max_marks": m, "description": d})
 
+    # Handle optional question reference image/circuit upload
+    img_file = request.files.get("question_image")
+    image_url = ""
+    if img_file and img_file.filename:
+        valid, opt_bytes, metadata, _ = ImageService.validate_and_process_upload(img_file)
+        if valid and opt_bytes:
+            safe_num = "".join(c for c in q_num if c.isalnum()) or "1"
+            mime = (metadata or {}).get("mime_type", "image/jpeg")
+            ext = ".svg" if mime == "image/svg+xml" else (".png" if mime == "image/png" else ".jpg")
+            filename = f"q_{assessment_id[:8]}_{safe_num}_{int(datetime.now().timestamp())}{ext}"
+            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "uploads", "questions")
+            os.makedirs(upload_dir, exist_ok=True)
+            filepath = os.path.join(upload_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(opt_bytes)
+            image_url = f"/static/uploads/questions/{filename}"
+
     q_data = {
         "question_number": q_num,
         "question_text": q_text,
@@ -199,6 +216,7 @@ def add_question(assessment_id):
         "difficulty": difficulty,
         "requires_diagram": req_diagram,
         "requires_numerical": req_numerical,
+        "question_image_url": image_url,
         "criteria": criteria
     }
 

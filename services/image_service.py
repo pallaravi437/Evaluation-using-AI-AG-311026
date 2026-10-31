@@ -12,6 +12,7 @@ ALLOWED_IMAGE_MIMES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
+    "image/svg+xml": ".svg",
     "application/pdf": ".pdf"
 }
 
@@ -139,6 +140,22 @@ class ImageService:
                     "sha256": cls.calculate_sha256(file_bytes)
                 }
                 return True, file_bytes, metadata, "PDF accepted."
+
+            # Check if SVG vector circuit / image
+            cleaned_prefix = file_bytes.strip()[:100].lower()
+            if b"<svg" in cleaned_prefix or b"<?xml" in cleaned_prefix and b"<svg" in file_bytes[:500].lower():
+                metadata = {
+                    "original_size_bytes": len(file_bytes),
+                    "optimized_size_bytes": len(file_bytes),
+                    "original_size_kb": round(len(file_bytes) / 1024, 1),
+                    "optimized_size_kb": round(len(file_bytes) / 1024, 1),
+                    "compression_ratio_pct": 0.0,
+                    "width": None,
+                    "height": None,
+                    "mime_type": "image/svg+xml",
+                    "sha256": cls.calculate_sha256(file_bytes)
+                }
+                return True, file_bytes, metadata, "SVG diagram accepted."
 
             # Verify image
             try:

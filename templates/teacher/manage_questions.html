@@ -66,6 +66,16 @@
         {{ q.question_text }}
       </div>
 
+      <!-- Optional Attached Circuit Diagram / Question Figure -->
+      {% if q.question_image_url %}
+        <div style="margin-bottom: 1rem; text-align: center; background: #0b1120; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem;">
+          <strong style="color: var(--secondary); font-size: 0.8rem; display: block; margin-bottom: 0.5rem;">
+            📸 Attached Question Reference Figure:
+          </strong>
+          <img src="{{ q.question_image_url }}" alt="Figure for Question {{ q.question_number }}" style="max-width: 100%; max-height: 280px; border-radius: var(--radius-sm);">
+        </div>
+      {% endif %}
+
       <!-- Model Answer Reference -->
       <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.85rem;">
         <strong style="color: #6ee7b7; display: block; margin-bottom: 0.25rem;">
@@ -115,7 +125,7 @@
       <button onclick="document.getElementById('add-question-modal').style.display='none'" class="btn btn-sm btn-secondary">&times;</button>
     </div>
 
-    <form action="{{ url_for('teacher.add_question', assessment_id=assessment.id) }}" method="POST">
+    <form action="{{ url_for('teacher.add_question', assessment_id=assessment.id) }}" method="POST" enctype="multipart/form-data">
       
       <div class="grid grid-2">
         <div class="form-group">
@@ -132,6 +142,17 @@
       <div class="form-group">
         <label class="form-label" for="q_text">Question Statement</label>
         <textarea id="q_text" name="question_text" class="form-control" rows="3" placeholder="e.g. Draw the circuit diagram of an NPN Transistor in CE configuration with input and output biasing. Label all currents (IB, IC, IE) and voltages (VBE, VCE)." required></textarea>
+      </div>
+
+      <!-- Question Image / Circuit Diagram Upload Input -->
+      <div class="form-group" style="background: rgba(255, 255, 255, 0.02); padding: 0.85rem; border: 1px dashed var(--border); border-radius: var(--radius-sm);">
+        <label class="form-label" for="question_image" style="display: flex; align-items: center; gap: 0.4rem;">
+          <span>📸 Attach Question Reference Image / Circuit Diagram (Optional)</span>
+        </label>
+        <input type="file" id="question_image" name="question_image" class="form-control" accept="image/jpeg,image/png,image/webp,image/svg+xml">
+        <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.35rem;">
+          Upload circuit diagrams, pinouts, characteristic curves, or schematic figures. Students and Gemini AI will reference this image.
+        </small>
       </div>
 
       <div class="form-group">

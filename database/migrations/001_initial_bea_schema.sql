@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS public.questions (
     difficulty VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (difficulty IN ('easy', 'medium', 'hard')),
     requires_diagram BOOLEAN NOT NULL DEFAULT FALSE,
     requires_numerical BOOLEAN NOT NULL DEFAULT FALSE,
+    question_image_url TEXT,
+    question_image_path TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_assessment_question_num UNIQUE (assessment_id, question_number)

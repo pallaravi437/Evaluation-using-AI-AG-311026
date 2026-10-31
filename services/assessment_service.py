@@ -135,7 +135,9 @@ class AssessmentService:
                     "acceptable_alternatives": question_data.get("acceptable_alternatives", "").strip(),
                     "difficulty": question_data.get("difficulty", "medium"),
                     "requires_diagram": bool(question_data.get("requires_diagram", False)),
-                    "requires_numerical": bool(question_data.get("requires_numerical", False))
+                    "requires_numerical": bool(question_data.get("requires_numerical", False)),
+                    "question_image_url": question_data.get("question_image_url", ""),
+                    "question_image_path": question_data.get("question_image_path", "")
                 }
                 res = supabase.table("questions").insert(q_row).execute()
                 if res.data:
@@ -195,7 +197,9 @@ class AssessmentService:
                 "acceptable_alternatives": q.get("acceptable_alternatives", ""),
                 "difficulty": q.get("difficulty", "medium"),
                 "requires_diagram": q.get("requires_diagram", False),
-                "requires_numerical": q.get("requires_numerical", False)
+                "requires_numerical": q.get("requires_numerical", False),
+                "question_image_url": q.get("question_image_url", ""),
+                "question_image_path": q.get("question_image_path", "")
             }
             res = supabase.table("questions").insert(q_row).execute()
             if res.data:
@@ -234,13 +238,14 @@ class AssessmentService:
                 "id": f"{asm_id}-q1",
                 "question_number": "1",
                 "display_order": 1,
-                "question_text": "Draw the circuit diagram of an NPN Transistor in Common Emitter (CE) configuration with input and output biasing circuits. Label all currents (IB, IC, IE) and voltages (VBE, VCE).",
+                "question_text": "Draw the circuit diagram of an NPN Transistor in Common Emitter (CE) configuration with input and output biasing circuits. Label all currents (IB, IC, IE) and voltages (VBE, VCE). Refer to the circuit diagram below if needed.",
                 "max_marks": 5.0,
                 "model_answer": "Circuit showing NPN transistor with emitter grounded/common. Base-emitter forward biased with VBB and resistor RB. Collector-emitter reverse biased with VCC and load resistor RC. Currents indicated: IE = IB + IC.",
                 "acceptable_alternatives": "PNP transistor in CE with reversed polarities is also accepted.",
                 "difficulty": "medium",
                 "requires_diagram": True,
                 "requires_numerical": False,
+                "question_image_url": "/static/images/bjt_ce_circuit.svg",
                 "criteria": [
                     {"criterion_title": "Correct NPN Transistor symbol & terminal identification", "max_marks": 1.5, "description": "Arrow outwards on emitter terminal."},
                     {"criterion_title": "Biasing polarities (Forward Base, Reverse Collector)", "max_marks": 1.5, "description": "VBB forward bias and VCC reverse bias."},
