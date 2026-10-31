@@ -47,6 +47,9 @@
       </div>
 
       <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+        <a href="{{ url_for('teacher.manage_questions', assessment_id=asm.id) }}" class="btn btn-primary btn-sm">
+          📝 Manage Questions
+        </a>
         <a href="{{ url_for('teacher.dashboard', assessment_id=asm.id) }}" class="btn btn-secondary btn-sm">
           Track Submissions →
         </a>

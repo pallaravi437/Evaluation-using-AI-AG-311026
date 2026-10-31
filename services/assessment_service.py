@@ -110,7 +110,76 @@ class AssessmentService:
         _local_assessments.insert(0, record)
         if questions:
             _local_questions[new_id] = questions
+        else:
+            _local_questions[new_id] = []
         return True, new_id, "Assessment created (Local session)."
+
+    @classmethod
+    def add_question(cls, assessment_id: str, question_data: Dict[str, Any]) -> Tuple[bool, Optional[str], str]:
+        """Adds a single question with rubric criteria to an assessment."""
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                # Count current questions for display order
+                cur_res = supabase.table("questions").select("id", count="exact").eq("assessment_id", assessment_id).execute()
+                current_count = cur_res.count if hasattr(cur_res, "count") else len(cur_res.data or [])
+                display_order = current_count + 1
+
+                q_row = {
+                    "assessment_id": assessment_id,
+                    "question_number": question_data.get("question_number", str(display_order)),
+                    "display_order": display_order,
+                    "question_text": question_data.get("question_text", "").strip(),
+                    "max_marks": float(question_data.get("max_marks", 5.0)),
+                    "model_answer": question_data.get("model_answer", "").strip(),
+                    "acceptable_alternatives": question_data.get("acceptable_alternatives", "").strip(),
+                    "difficulty": question_data.get("difficulty", "medium"),
+                    "requires_diagram": bool(question_data.get("requires_diagram", False)),
+                    "requires_numerical": bool(question_data.get("requires_numerical", False))
+                }
+                res = supabase.table("questions").insert(q_row).execute()
+                if res.data:
+                    q_id = res.data[0]["id"]
+                    criteria = question_data.get("criteria", [])
+                    for idx, c in enumerate(criteria, start=1):
+                        supabase.table("marking_criteria").insert({
+                            "question_id": q_id,
+                            "criterion_order": idx,
+                            "criterion_title": c.get("criterion_title", f"Criterion {idx}").strip(),
+                            "max_marks": float(c.get("max_marks", 1.0)),
+                            "description": c.get("description", "").strip()
+                        }).execute()
+                    return True, q_id, "Question added successfully."
+            except Exception as e:
+                logger.error(f"Error adding question to Supabase: {e}")
+                return False, None, str(e)
+
+        # Local mode
+        import uuid
+        q_id = str(uuid.uuid4())
+        q_copy = dict(question_data)
+        q_copy["id"] = q_id
+        q_list = _local_questions.setdefault(assessment_id, [])
+        q_copy["display_order"] = len(q_list) + 1
+        q_list.append(q_copy)
+        return True, q_id, "Question added (Local mode)."
+
+    @classmethod
+    def delete_question(cls, assessment_id: str, question_id: str) -> Tuple[bool, str]:
+        """Deletes a question from an assessment."""
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                supabase.table("questions").delete().eq("id", question_id).execute()
+                return True, "Question deleted successfully."
+            except Exception as e:
+                logger.error(f"Error deleting question: {e}")
+                return False, str(e)
+
+        if assessment_id in _local_questions:
+            _local_questions[assessment_id] = [q for q in _local_questions[assessment_id] if q.get("id") != question_id]
+            return True, "Question deleted (Local mode)."
+        return False, "Assessment not found."
 
     @classmethod
     def _save_questions(cls, supabase, assessment_id: str, questions: List[Dict[str, Any]]):

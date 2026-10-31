@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Questions - {{ assessment.title }}{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom: 1.5rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span class="badge badge-info">{{ assessment.subject_code }}</span>
+        <span class="badge badge-primary">{{ assessment.assessment_type | replace('_', ' ') | title }}</span>
+      </div>
+      <h1 style="font-size: 1.5rem; font-weight: 700; margin-top: 0.35rem;">
+        {{ assessment.title }} - Question Builder
+      </h1>
+      <p style="color: var(--text-muted); font-size: 0.85rem;">
+        Target Total Marks: <strong>{{ assessment.max_marks }}</strong> • Pass Criteria: <strong>{{ assessment.pass_percentage }}%</strong>
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 0.75rem;">
+      <a href="{{ url_for('teacher.manage_assessments') }}" class="btn btn-secondary">
+        ← Back to Assessments
+      </a>
+      <button onclick="document.getElementById('add-question-modal').style.display='flex'" class="btn btn-primary">
+        + Add Question & Rubric
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Questions Summary & List -->
+<div class="card-header">
+  <h2 class="card-title">
+    📋 Configured Questions ({{ assessment.questions | length }})
+  </h2>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 1.25rem; margin-bottom: 2.5rem;">
+  {% for q in assessment.questions %}
+    <div class="card" style="border-top: 3px solid var(--secondary);">
+      <div class="card-header">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span class="badge badge-primary" style="font-size: 0.9rem;">Question {{ q.question_number }}</span>
+          <span style="font-weight: 700; color: #34d399; font-size: 1rem;">{{ q.max_marks }} Marks</span>
+          <span class="badge {% if q.difficulty == 'easy' %}badge-success{% elif q.difficulty == 'hard' %}badge-danger{% else %}badge-warning{% endif %}">
+            {{ q.difficulty | upper }}
+          </span>
+          {% if q.requires_diagram %}
+            <span class="badge badge-info">Requires Circuit Diagram</span>
+          {% endif %}
+          {% if q.requires_numerical %}
+            <span class="badge badge-warning">Numerical Calculation</span>
+          {% endif %}
+        </div>
+
+        <div>
+          <form action="{{ url_for('teacher.delete_question', assessment_id=assessment.id, question_id=q.id) }}" method="POST" onsubmit="return confirm('Delete Question {{ q.question_number }}?')">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Question Text -->
+      <div style="font-size: 1rem; color: var(--text-main); background: #0f172a; padding: 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem; border-left: 3px solid var(--primary);">
+        {{ q.question_text }}
+      </div>
+
+      <!-- Model Answer Reference -->
+      <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.85rem;">
+        <strong style="color: #6ee7b7; display: block; margin-bottom: 0.25rem;">
+          🎯 Official Model Answer (Evaluated by Gemini AI):
+        </strong>
+        <p style="color: #e2e8f0; line-height: 1.5;">{{ q.model_answer }}</p>
+        {% if q.acceptable_alternatives %}
+          <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.1); color: #94a3b8; font-size: 0.8rem;">
+            <strong>Acceptable Alternatives:</strong> {{ q.acceptable_alternatives }}
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Rubric Criteria Breakdown -->
+      {% set criteria = q.marking_criteria or q.criteria %}
+      {% if criteria %}
+        <div style="background: #0f172a; padding: 0.75rem 1rem; border-radius: var(--radius-sm);">
+          <strong style="color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; display: block; margin-bottom: 0.5rem;">
+            Marking Scheme Rubric (Criterion-wise Breakdown):
+          </strong>
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            {% for c in criteria %}
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; padding: 0.25rem 0; border-bottom: 1px dashed rgba(255,255,255,0.06);">
+                <span>• {{ c.criterion_title }} {% if c.description %}<span style="color: var(--text-muted);">({{ c.description }})</span>{% endif %}</span>
+                <strong style="color: var(--secondary);">{{ c.max_marks }} Marks</strong>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="card" style="text-align: center; padding: 3rem;">
+      <p style="color: var(--text-muted); margin-bottom: 1rem;">No questions configured for this assessment yet.</p>
+      <button onclick="document.getElementById('add-question-modal').style.display='flex'" class="btn btn-primary">
+        + Add Question 1
+      </button>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Modal: Add Question & Rubric -->
+<div id="add-question-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 1rem;">
+  <div class="card" style="max-width: 780px; width: 100%; max-height: 90vh; overflow-y: auto;">
+    <div class="card-header">
+      <h3 class="card-title">Add Question & Marking Rubric</h3>
+      <button onclick="document.getElementById('add-question-modal').style.display='none'" class="btn btn-sm btn-secondary">&times;</button>
+    </div>
+
+    <form action="{{ url_for('teacher.add_question', assessment_id=assessment.id) }}" method="POST">
+      
+      <div class="grid grid-2">
+        <div class="form-group">
+          <label class="form-label" for="q_number">Question Number</label>
+          <input type="text" id="q_number" name="question_number" class="form-control" placeholder="e.g. 1 or 2a" value="{{ (assessment.questions | length) + 1 }}" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="q_marks">Marks for this Question</label>
+          <input type="number" id="q_marks" name="max_marks" class="form-control" value="5" min="0.5" max="50" step="0.5" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="q_text">Question Statement</label>
+        <textarea id="q_text" name="question_text" class="form-control" rows="3" placeholder="e.g. Draw the circuit diagram of an NPN Transistor in CE configuration with input and output biasing. Label all currents (IB, IC, IE) and voltages (VBE, VCE)." required></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="model_ans">Official Model Answer (Used by Gemini Multimodal AI)</label>
+        <textarea id="model_ans" name="model_answer" class="form-control" rows="3" placeholder="Specify key circuit topology, polarities, derivation steps, formulas, and expected numerical values." required></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="acceptable_alt">Acceptable Alternative Answers / Derivations</label>
+        <input type="text" id="acceptable_alt" name="acceptable_alternatives" class="form-control" placeholder="e.g. PNP transistor with reversed polarities or standard equivalent algebra accepted">
+      </div>
+
+      <div class="grid grid-3">
+        <div class="form-group">
+          <label class="form-label" for="difficulty">Difficulty Level</label>
+          <select id="difficulty" name="difficulty" class="form-control">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
+          <input type="checkbox" id="requires_diagram" name="requires_diagram" value="1" checked>
+          <label for="requires_diagram" style="font-size: 0.85rem;">Requires Circuit Diagram</label>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
+          <input type="checkbox" id="requires_numerical" name="requires_numerical" value="1">
+          <label for="requires_numerical" style="font-size: 0.85rem;">Requires Numerical Work</label>
+        </div>
+      </div>
+
+      <!-- DYNAMIC RUBRIC CRITERIA BUILDER -->
+      <div style="background: #0f172a; padding: 1rem; border-radius: var(--radius-md); margin-top: 1rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div>
+            <strong style="color: var(--secondary); font-size: 0.9rem;">Marking Criteria Rubric</strong>
+            <small style="color: var(--text-muted); display: block;">Define criterion breakdown (e.g. Diagram, Formula, Substitution)</small>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addCriterionRow()">+ Add Criterion</button>
+        </div>
+
+        <div id="criteria-rows-container" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <div class="criterion-row" style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" name="criterion_title[]" class="form-control" placeholder="Criterion title (e.g. Circuit Diagram & Labels)" style="flex: 2;" required>
+            <input type="number" name="criterion_marks[]" class="form-control" placeholder="Marks" style="width: 90px;" step="0.5" value="2.0" required>
+            <input type="text" name="criterion_desc[]" class="form-control" placeholder="Description/keywords" style="flex: 2;">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="padding: 0.4rem 0.6rem;">&times;</button>
+          </div>
+          <div class="criterion-row" style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" name="criterion_title[]" class="form-control" placeholder="Criterion title (e.g. Biasing polarities & KCL)" style="flex: 2;" required>
+            <input type="number" name="criterion_marks[]" class="form-control" placeholder="Marks" style="width: 90px;" step="0.5" value="3.0" required>
+            <input type="text" name="criterion_desc[]" class="form-control" placeholder="Description/keywords" style="flex: 2;">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="padding: 0.4rem 0.6rem;">&times;</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('add-question-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Question & Rubric →</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function addCriterionRow() {
+    const container = document.getElementById("criteria-rows-container");
+    const div = document.createElement("div");
+    div.className = "criterion-row";
+    div.style.cssText = "display: flex; gap: 0.5rem; align-items: center;";
+    div.innerHTML = `
+      <input type="text" name="criterion_title[]" class="form-control" placeholder="Criterion title" style="flex: 2;" required>
+      <input type="number" name="criterion_marks[]" class="form-control" placeholder="Marks" style="width: 90px;" step="0.5" value="1.0" required>
+      <input type="text" name="criterion_desc[]" class="form-control" placeholder="Description/keywords" style="flex: 2;">
+      <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="padding: 0.4rem 0.6rem;">&times;</button>
+    `;
+    container.appendChild(div);
+  }
+</script>
+{% endblock %}

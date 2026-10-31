@@ -150,6 +150,76 @@ def manage_assessments():
     assessments = AssessmentService.get_all_assessments()
     return render_template("teacher/assessments.html", assessments=assessments)
 
+@teacher_bp.route("/assessment/<assessment_id>/questions")
+@teacher_required
+def manage_questions(assessment_id):
+    """View and manage questions and marking rubrics for an assessment."""
+    assessment = AssessmentService.get_assessment_by_id(assessment_id)
+    if not assessment:
+        flash("Assessment not found.", "danger")
+        return redirect(url_for("teacher.manage_assessments"))
+    return render_template("teacher/manage_questions.html", assessment=assessment)
+
+@teacher_bp.route("/assessment/<assessment_id>/add-question", methods=["POST"])
+@teacher_required
+def add_question(assessment_id):
+    """Adds a new question with marking criteria to an assessment."""
+    q_num = request.form.get("question_number", "").strip()
+    q_text = request.form.get("question_text", "").strip()
+    max_m = float(request.form.get("max_marks", 5.0))
+    model_ans = request.form.get("model_answer", "").strip()
+    alternatives = request.form.get("acceptable_alternatives", "").strip()
+    difficulty = request.form.get("difficulty", "medium")
+    req_diagram = bool(request.form.get("requires_diagram"))
+    req_numerical = bool(request.form.get("requires_numerical"))
+
+    # Extract dynamic rubric criteria
+    criteria = []
+    titles = request.form.getlist("criterion_title[]")
+    marks = request.form.getlist("criterion_marks[]")
+    descs = request.form.getlist("criterion_desc[]")
+
+    for i in range(len(titles)):
+        t = titles[i].strip()
+        if t:
+            try:
+                m = float(marks[i])
+            except (IndexError, ValueError):
+                m = 1.0
+            d = descs[i].strip() if i < len(descs) else ""
+            criteria.append({"criterion_title": t, "max_marks": m, "description": d})
+
+    q_data = {
+        "question_number": q_num,
+        "question_text": q_text,
+        "max_marks": max_m,
+        "model_answer": model_ans,
+        "acceptable_alternatives": alternatives,
+        "difficulty": difficulty,
+        "requires_diagram": req_diagram,
+        "requires_numerical": req_numerical,
+        "criteria": criteria
+    }
+
+    success, q_id, msg = AssessmentService.add_question(assessment_id, q_data)
+    if success:
+        flash(f"Question {q_num} and its marking rubric added successfully!", "success")
+    else:
+        flash(f"Failed to add question: {msg}", "danger")
+
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+@teacher_bp.route("/assessment/<assessment_id>/delete-question/<question_id>", methods=["POST"])
+@teacher_required
+def delete_question(assessment_id, question_id):
+    """Deletes a question from an assessment."""
+    success, msg = AssessmentService.delete_question(assessment_id, question_id)
+    if success:
+        flash("Question deleted.", "info")
+    else:
+        flash(f"Could not delete question: {msg}", "danger")
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
 @teacher_bp.route("/students", methods=["GET", "POST"])
 @teacher_required
 def manage_students():
