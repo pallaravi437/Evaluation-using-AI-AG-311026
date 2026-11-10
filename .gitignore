@@ -31,6 +31,7 @@ student_scripts/
 !static/images/logo.png
 
 # Student private records & local backups
+GITHUB MOVE/
 database/local_store/
 scratch/
 private_records/
