@@ -11,6 +11,9 @@ from services.student_service import StudentService
 from services.image_service import ImageService
 from services.ai_service import AIService
 from services.analytics_service import AnalyticsService
+from services.html_parser_service import HtmlQuestionParser
+from services.document_question_parser import DocumentQuestionParser
+from services.material_service import MaterialService
 from database.db_manager import db_manager
 from config import Config
 
@@ -30,7 +33,7 @@ def teacher_required(f):
 @teacher_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email", "").strip()
+        email = (request.form.get("email") or request.form.get("username") or "").strip()
         password = request.form.get("password", "")
         client_ip = request.remote_addr or ""
 
@@ -56,6 +59,84 @@ def logout():
     flash("Lecturer session ended.", "info")
     return redirect(url_for("teacher.login"))
 
+@teacher_bp.route("/signup", methods=["GET", "POST"])
+def signup():
+    """Lecturer registration — pending admin approval."""
+    if request.method == "POST":
+        full_name = request.form.get("full_name", "").strip()
+        username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        subject = request.form.get("subject", "").strip()
+        mobile = request.form.get("mobile", "").strip()
+
+        if password != confirm_password:
+            flash("Passwords do not match. Please verify.", "danger")
+            return render_template("teacher/signup.html")
+
+        if len(password) < 6:
+            flash("Password must be at least 6 characters long.", "danger")
+            return render_template("teacher/signup.html")
+
+        from services.lecturer_service import LecturerService
+        success, data, message = LecturerService.register_lecturer(
+            full_name=full_name,
+            username=username,
+            email=email,
+            password=password,
+            subject=subject,
+            mobile=mobile
+        )
+        if success:
+            flash(message, "success")
+            return redirect(url_for("teacher.login"))
+        else:
+            flash(message, "danger")
+
+    return render_template("teacher/signup.html")
+
+@teacher_bp.route("/my-settings", methods=["GET", "POST"])
+@teacher_required
+def my_settings():
+    """Lecturer-specific settings for their own API key, model, and dedicated database."""
+    from services.lecturer_service import LecturerService
+    teacher_id = session.get("teacher_id")
+
+    if request.method == "POST":
+        updates = {
+            "ai_provider": request.form.get("ai_provider", "gemini").strip(),
+            "ai_model": request.form.get("ai_model", "gemini-3.1-flash-lite").strip(),
+            "database_type": request.form.get("database_type", "local").strip(),
+            "supabase_url": request.form.get("supabase_url", "").strip(),
+            "mysql_host": request.form.get("mysql_host", "").strip(),
+            "mysql_port": request.form.get("mysql_port", 3306),
+            "mysql_user": request.form.get("mysql_user", "").strip(),
+            "mysql_database": request.form.get("mysql_database", "").strip(),
+        }
+
+        new_key = request.form.get("gemini_api_key", "").strip()
+        if new_key and not new_key.startswith("••••"):
+            updates["gemini_api_key"] = new_key
+
+        new_sup_key = request.form.get("supabase_key", "").strip()
+        if new_sup_key and not new_sup_key.startswith("••••"):
+            updates["supabase_key"] = new_sup_key
+
+        new_mysql_pw = request.form.get("mysql_password", "").strip()
+        if new_mysql_pw and not new_mysql_pw.startswith("••••"):
+            updates["mysql_password"] = new_mysql_pw
+
+        success, msg = LecturerService.update_lecturer_config(teacher_id, updates)
+        if success:
+            flash("Your dedicated database & AI settings have been saved!", "success")
+        else:
+            flash(f"Could not save settings: {msg}", "danger")
+        return redirect(url_for("teacher.my_settings"))
+
+    config = LecturerService.get_lecturer_config(teacher_id)
+    return render_template("teacher/my_settings.html", config=config)
+
 @teacher_bp.route("/dashboard")
 @teacher_required
 def dashboard():
@@ -65,8 +146,9 @@ def dashboard():
     2. Evaluate Submissions
     3. Result Analysis Dashboard
     """
-    assessments = AssessmentService.get_all_assessments()
-    students = StudentService.get_all_students()
+    teacher_id = session.get("teacher_id")
+    assessments = AssessmentService.get_all_assessments(teacher_id=teacher_id)
+    students = StudentService.get_all_students(teacher_id=teacher_id)
     
     # Calculate overview metrics across assessments
     total_students = len(students) or 60  # Default to ~60 Diploma batch if DB empty
@@ -126,14 +208,44 @@ def dashboard():
 @teacher_required
 def manage_assessments():
     """Create and manage assessments and questions."""
+    filter_type = request.args.get("type")
+
     if request.method == "POST":
         title = request.form.get("title", "").strip()
         assessment_type = request.form.get("assessment_type", "slip_test")
-        max_marks = float(request.form.get("max_marks", 20.0))
+        unit_topic = request.form.get("unit_topic", "General").strip()
+        deadline = request.form.get("deadline") or None
+        try:
+            max_marks = float(request.form.get("max_marks", 20.0))
+        except (ValueError, TypeError):
+            max_marks = 20.0
         assessment_date = request.form.get("assessment_date", "")
         instructions = request.form.get("instructions", "")
-        pass_pct = float(request.form.get("pass_percentage", 35.0))
+        try:
+            pass_pct = float(request.form.get("pass_percentage", 35.0))
+        except (ValueError, TypeError):
+            pass_pct = 35.0
         teacher_id = session.get("teacher_id")
+
+        # Check if an HTML questions file was uploaded to auto-populate questions
+        parsed_questions = None
+        q_file = request.files.get("questions_file")
+        if q_file and q_file.filename:
+            try:
+                raw_bytes = q_file.read()
+                html_text = raw_bytes.decode("utf-8", errors="ignore")
+                parsed_questions = HtmlQuestionParser.parse_html(html_text)
+                if parsed_questions:
+                    total_q_marks = sum(float(q.get("max_marks", 1.0)) for q in parsed_questions)
+                    if total_q_marks > 0:
+                        max_marks = total_q_marks
+                    # If MCQ was chosen or questions have options, enforce mcq_test
+                    if any(q.get("question_type") == "mcq" for q in parsed_questions):
+                        if assessment_type in ("slip_test", "assignment"):
+                            assessment_type = "mcq_test"
+            except Exception as e:
+                logger.error(f"Error parsing HTML questions file: {e}")
+                flash(f"Warning: Could not parse HTML file: {e}", "warning")
 
         success, new_id, msg = AssessmentService.create_assessment(
             title=title,
@@ -142,16 +254,45 @@ def manage_assessments():
             assessment_date=assessment_date,
             instructions=instructions,
             pass_percentage=pass_pct,
-            created_by_id=teacher_id
+            questions=parsed_questions,
+            created_by_id=teacher_id,
+            unit_topic=unit_topic,
+            deadline=deadline
         )
         if success:
+            if parsed_questions:
+                flash(f"Assessment '{title}' created successfully with {len(parsed_questions)} questions auto-imported from HTML file!", "success")
+                return redirect(url_for("teacher.manage_questions", assessment_id=new_id))
             flash("Assessment created successfully!", "success")
-            return redirect(url_for("teacher.dashboard", assessment_id=new_id))
+            return redirect(url_for("teacher.manage_questions", assessment_id=new_id))
         else:
             flash(f"Failed to create assessment: {msg}", "danger")
 
-    assessments = AssessmentService.get_all_assessments()
-    return render_template("teacher/assessments.html", assessments=assessments)
+    assessments = AssessmentService.get_all_assessments(teacher_id=session.get("teacher_id"))
+    return render_template("teacher/assessments.html", assessments=assessments, filter_type=filter_type)
+
+@teacher_bp.route("/assessment/<assessment_id>/toggle-publish", methods=["POST"])
+@teacher_required
+def toggle_assessment_publish(assessment_id):
+    """Toggles assessment status between published and draft."""
+    publish_val = request.form.get("publish") == "1"
+    success, msg = AssessmentService.toggle_publish(assessment_id, publish_val)
+    if success:
+        flash(msg, "success")
+    else:
+        flash(f"Could not change publish status: {msg}", "danger")
+    return redirect(request.referrer or url_for("teacher.manage_assessments"))
+
+@teacher_bp.route("/assessment/<assessment_id>/delete", methods=["POST"])
+@teacher_required
+def delete_assessment(assessment_id):
+    """Deletes an assessment if zero students have submitted."""
+    success, msg = AssessmentService.delete_assessment(assessment_id)
+    if success:
+        flash("Assessment deleted successfully.", "info")
+    else:
+        flash(f"Could not delete assessment: {msg}", "danger")
+    return redirect(url_for("teacher.manage_assessments"))
 
 @teacher_bp.route("/assessment/<assessment_id>/questions")
 @teacher_required
@@ -161,126 +302,70 @@ def manage_questions(assessment_id):
     if not assessment:
         flash("Assessment not found.", "danger")
         return redirect(url_for("teacher.manage_assessments"))
-    return render_template("teacher/manage_questions.html", assessment=assessment)
+    materials = MaterialService.get_all_materials()
+    return render_template("teacher/manage_questions.html", assessment=assessment, materials=materials)
 
-@teacher_bp.route("/assessment/<assessment_id>/add-question", methods=["POST"])
-@teacher_required
-def add_question(assessment_id):
-    """Adds a new question with marking criteria to an assessment."""
+def _save_question_image(img_file, assessment_id: str, q_num: str) -> str:
+    """Validates, compresses and saves a question reference image. Returns URL or empty string."""
+    if not img_file or not img_file.filename:
+        return ""
+    valid, opt_bytes, metadata, _ = ImageService.validate_and_process_upload(img_file)
+    if not valid or not opt_bytes:
+        return ""
+    safe_num = "".join(c for c in q_num if c.isalnum()) or "1"
+    mime = (metadata or {}).get("mime_type", "image/jpeg")
+    ext = ".svg" if mime == "image/svg+xml" else (".png" if mime == "image/png" else ".jpg")
+    filename = f"q_{assessment_id[:8]}_{safe_num}_{int(datetime.now().timestamp())}{ext}"
+    upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "uploads", "questions")
+    os.makedirs(upload_dir, exist_ok=True)
+    with open(os.path.join(upload_dir, filename), "wb") as fh:
+        fh.write(opt_bytes)
+    return f"/static/uploads/questions/{filename}"
+
+
+def _parse_question_form(assessment_id: str) -> dict:
+    """Parses all question fields from request.form — shared by add and edit routes."""
     q_num = request.form.get("question_number", "").strip()
+    q_type = request.form.get("question_type", "descriptive").strip().lower()
     q_text = request.form.get("question_text", "").strip()
-    max_m = float(request.form.get("max_marks", 5.0))
+    try:
+        max_m = float(request.form.get("max_marks", 1.0 if q_type == "mcq" else 5.0))
+    except (ValueError, TypeError):
+        max_m = 1.0 if q_type == "mcq" else 5.0
     model_ans = request.form.get("model_answer", "").strip()
     alternatives = request.form.get("acceptable_alternatives", "").strip()
-    difficulty = request.form.get("difficulty", "medium")
+    difficulty = request.form.get("difficulty", "medium").strip().lower()
     req_diagram = bool(request.form.get("requires_diagram"))
     req_numerical = bool(request.form.get("requires_numerical"))
 
     # Extract dynamic rubric criteria
-    criteria = []
-    titles = request.form.getlist("criterion_title[]")
-    marks = request.form.getlist("criterion_marks[]")
-    descs = request.form.getlist("criterion_desc[]")
-
-    for i in range(len(titles)):
-        t = titles[i].strip()
-        if t:
-            try:
-                m = float(marks[i])
-            except (IndexError, ValueError):
-                m = 1.0
-            d = descs[i].strip() if i < len(descs) else ""
-            criteria.append({"criterion_title": t, "max_marks": m, "description": d})
-
-    # Handle optional question reference image/circuit upload
-    img_file = request.files.get("question_image")
-    image_url = ""
-    if img_file and img_file.filename:
-        valid, opt_bytes, metadata, _ = ImageService.validate_and_process_upload(img_file)
-        if valid and opt_bytes:
-            safe_num = "".join(c for c in q_num if c.isalnum()) or "1"
-            mime = (metadata or {}).get("mime_type", "image/jpeg")
-            ext = ".svg" if mime == "image/svg+xml" else (".png" if mime == "image/png" else ".jpg")
-            filename = f"q_{assessment_id[:8]}_{safe_num}_{int(datetime.now().timestamp())}{ext}"
-            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "uploads", "questions")
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(opt_bytes)
-            image_url = f"/static/uploads/questions/{filename}"
-
-    q_data = {
-        "question_number": q_num,
-        "question_text": q_text,
-        "max_marks": max_m,
-        "model_answer": model_ans,
-        "acceptable_alternatives": alternatives,
-        "difficulty": difficulty,
-        "requires_diagram": req_diagram,
-        "requires_numerical": req_numerical,
-        "question_image_url": image_url,
-        "criteria": criteria
-    }
-
-    success, q_id, msg = AssessmentService.add_question(assessment_id, q_data)
-    if success:
-        flash(f"Question {q_num} and its marking rubric added successfully!", "success")
-    else:
-        flash(f"Failed to add question: {msg}", "danger")
-
-    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
-
-@teacher_bp.route("/assessment/<assessment_id>/edit-question/<question_id>", methods=["POST"])
-@teacher_required
-def edit_question(assessment_id, question_id):
-    """Updates an existing question, attached diagram/figure, and rubric criteria."""
-    q_num = request.form.get("question_number", "1").strip()
-    q_text = request.form.get("question_text", "").strip()
-    try:
-        max_m = float(request.form.get("max_marks", 5.0))
-    except (ValueError, TypeError):
-        max_m = 5.0
-    model_ans = request.form.get("model_answer", "").strip()
-    alternatives = request.form.get("acceptable_alternatives", "").strip()
-    difficulty = request.form.get("difficulty", "medium")
-    req_diagram = bool(request.form.get("requires_diagram"))
-    req_numerical = bool(request.form.get("requires_numerical"))
-
-    # Parse rubric criteria lists
     crit_titles = request.form.getlist("criterion_title") or request.form.getlist("criterion_title[]")
     crit_marks = request.form.getlist("criterion_marks") or request.form.getlist("criterion_marks[]")
     descs = request.form.getlist("criterion_desc") or request.form.getlist("criterion_desc[]")
 
     criteria = []
-    for i, t in enumerate(crit_titles):
-        t = t.strip()
+    for i in range(len(crit_titles)):
+        t = crit_titles[i].strip()
         if t:
             try:
                 m = float(crit_marks[i]) if i < len(crit_marks) else 1.0
-            except ValueError:
+            except (IndexError, ValueError):
                 m = 1.0
             d = descs[i].strip() if i < len(descs) else ""
             criteria.append({"criterion_title": t, "max_marks": m, "description": d})
 
-    # Handle optional replacement of question reference image
-    img_file = request.files.get("question_image")
-    image_url = ""
-    if img_file and img_file.filename:
-        valid, opt_bytes, metadata, _ = ImageService.validate_and_process_upload(img_file)
-        if valid and opt_bytes:
-            safe_num = "".join(c for c in q_num if c.isalnum()) or "1"
-            mime = (metadata or {}).get("mime_type", "image/jpeg")
-            ext = ".svg" if mime == "image/svg+xml" else (".png" if mime == "image/png" else ".jpg")
-            filename = f"q_{assessment_id[:8]}_{safe_num}_{int(datetime.now().timestamp())}{ext}"
-            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "uploads", "questions")
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(opt_bytes)
-            image_url = f"/static/uploads/questions/{filename}"
+    # MCQ options
+    option_a = request.form.get("option_a", "").strip()
+    option_b = request.form.get("option_b", "").strip()
+    option_c = request.form.get("option_c", "").strip()
+    option_d = request.form.get("option_d", "").strip()
+    correct_option = (request.form.get("correct_option") or "A").strip().upper()
+
+    image_url = _save_question_image(request.files.get("question_image"), assessment_id, q_num)
 
     q_data = {
         "question_number": q_num,
+        "question_type": q_type,
         "question_text": q_text,
         "max_marks": max_m,
         "model_answer": model_ans,
@@ -288,18 +373,203 @@ def edit_question(assessment_id, question_id):
         "difficulty": difficulty,
         "requires_diagram": req_diagram,
         "requires_numerical": req_numerical,
+        "option_a": option_a,
+        "option_b": option_b,
+        "option_c": option_c,
+        "option_d": option_d,
+        "correct_option": correct_option,
         "criteria": criteria
     }
     if image_url:
         q_data["question_image_url"] = image_url
 
+    return q_data
+
+
+@teacher_bp.route("/assessment/<assessment_id>/add-question", methods=["POST"])
+@teacher_required
+def add_question(assessment_id):
+    """Adds a new question with marking criteria to an assessment."""
+    q_data = _parse_question_form(assessment_id)
+    success, q_id, msg = AssessmentService.add_question(assessment_id, q_data)
+    if success:
+        q_num = q_data.get("question_number") or "?"
+        flash(f"Question {q_num} and its marking rubric added successfully!", "success")
+    else:
+        flash(f"Failed to add question: {msg}", "danger")
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+
+@teacher_bp.route("/assessment/<assessment_id>/edit-question/<question_id>", methods=["POST"])
+@teacher_required
+def edit_question(assessment_id, question_id):
+    """Updates an existing question, attached diagram/figure, and rubric criteria."""
+    q_data = _parse_question_form(assessment_id)
     success, msg = AssessmentService.update_question(assessment_id, question_id, q_data)
     if success:
+        q_num = q_data.get("question_number") or "?"
         flash(f"Question {q_num} and its marking rubric updated successfully!", "success")
     else:
         flash(f"Failed to update question: {msg}", "danger")
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+
+@teacher_bp.route("/assessment/<assessment_id>/upload-html-questions", methods=["POST"])
+@teacher_required
+def upload_html_questions(assessment_id):
+    """Bulk imports questions from an uploaded HTML file or pasted HTML text into an existing assessment."""
+    file = request.files.get("questions_file")
+    pasted_html = request.form.get("pasted_html", "").strip()
+
+    content = ""
+    if file and file.filename:
+        try:
+            content = file.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            flash(f"Error reading uploaded file: {e}", "danger")
+            return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+    elif pasted_html:
+        content = pasted_html
+    else:
+        flash("Please upload an HTML file or paste HTML content containing questions.", "warning")
+        return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+    try:
+        parsed = HtmlQuestionParser.parse_html(content)
+        if not parsed:
+            flash("Could not detect any questions in the provided HTML. Ensure questions are numbered (e.g. '1. Define...') or structured with HTML tags (div class='question'). Supports both MCQ and descriptive formats.", "danger")
+            return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+        ok, count, msg = AssessmentService.add_questions_bulk(assessment_id, parsed)
+        if ok:
+            flash(f"Successfully auto-imported {count} questions from HTML! You can review or edit them below.", "success")
+        else:
+            flash(f"Error importing questions: {msg}", "danger")
+    except Exception as e:
+        logger.error(f"Error importing HTML questions: {e}")
+        flash(f"Failed to parse HTML: {str(e)}", "danger")
 
     return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+
+@teacher_bp.route("/assessment/<assessment_id>/ai-generate-questions", methods=["POST"])
+@teacher_required
+def ai_generate_questions(assessment_id):
+    """Automatically generates questions based on subject, lesson name, topics, keywords, count, and marks, and imports them."""
+    subject = request.form.get("subject", "").strip()
+    lesson_name = request.form.get("lesson_name", "").strip()
+    topics = request.form.get("topics", "").strip()
+    keywords = request.form.get("keywords", "").strip()
+    q_type = request.form.get("question_type", "descriptive")
+    difficulty = request.form.get("difficulty", "medium")
+    material_id = request.form.get("material_id", "").strip()
+
+    try:
+        num_questions = int(request.form.get("num_questions", 5))
+    except (ValueError, TypeError):
+        num_questions = 5
+
+    try:
+        marks_per_q = float(request.form.get("marks_per_question", 5.0))
+    except (ValueError, TypeError):
+        marks_per_q = 5.0
+
+    material_context = ""
+    if material_id:
+        mat = MaterialService.get_material_by_id(material_id)
+        if mat:
+            s_cont = mat.get("structured_content") or {}
+            parts = [f"### Reference Material: {mat.get('title', '')} (Type: {mat.get('material_type', 'syllabus')})"]
+            if s_cont.get("summary"):
+                parts.append(f"Summary: {s_cont['summary']}")
+            if s_cont.get("units"):
+                parts.append(f"Units/Topics: {', '.join(str(u) for u in s_cont['units'])}")
+            if s_cont.get("key_definitions"):
+                parts.append(f"Key Definitions: {', '.join(str(d) for d in s_cont['key_definitions'][:10])}")
+            if s_cont.get("key_formulas"):
+                parts.append(f"Formulas: {', '.join(str(f) for f in s_cont['key_formulas'][:10])}")
+            if s_cont.get("learning_outcomes"):
+                parts.append(f"Learning Outcomes: {', '.join(str(o) for o in s_cont['learning_outcomes'][:6])}")
+            snippet = (mat.get("extracted_text") or "")[:2000]
+            if snippet:
+                parts.append(f"Content excerpt:\n{snippet}")
+            material_context = "\n".join(parts)
+
+    if not material_context:
+        material_context = MaterialService.get_structured_context_for_assessment(
+            assessment_id=assessment_id,
+            subject_code=subject,
+            unit_topic=lesson_name
+        )
+
+    if not lesson_name and not topics and not subject and not material_context:
+        flash("Please enter at least a Subject, Lesson / Unit Name, Topic, or select a Syllabus/Material to generate questions.", "warning")
+        return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+    success, questions, msg = AIService.generate_assessment_questions(
+        lesson_name=lesson_name,
+        topics=topics,
+        assessment_type=q_type,
+        num_questions=num_questions,
+        marks_per_question=marks_per_q,
+        difficulty=difficulty,
+        subject=subject,
+        keywords=keywords,
+        material_context=material_context
+    )
+
+    if not success or not questions:
+        flash(f"Could not generate questions: {msg}", "danger")
+        return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+    ok, count, save_msg = AssessmentService.add_questions_bulk(assessment_id, questions)
+    if ok:
+        flash(f"✨ Successfully generated and added {count} questions for '{lesson_name or topics}'!", "success")
+    else:
+        flash(f"Questions generated but could not save: {save_msg}", "danger")
+
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+
+@teacher_bp.route("/assessment/<assessment_id>/ai-suggest-topics", methods=["POST"])
+@teacher_required
+def ai_suggest_topics(assessment_id):
+    """Suggests subtopics, keywords, and clarifying questions for the lecturer."""
+    data = request.get_json() or {}
+    subject = data.get("subject", "").strip()
+    lesson_name = data.get("lesson_name", "").strip()
+    topics = data.get("topics", "").strip()
+
+    result = AIService.suggest_subtopics_and_keywords(
+        subject=subject,
+        lesson_name=lesson_name,
+        topics=topics
+    )
+    return jsonify(result)
+
+
+@teacher_bp.route("/assessment/<assessment_id>/import-google-forms", methods=["POST"])
+@teacher_required
+def import_google_forms(assessment_id):
+    """Extracts questions and options from a Google Forms URL for lecturer verification."""
+    form_url = request.form.get("form_url", "").strip()
+    if not form_url:
+        flash("Please enter a valid Google Forms URL.", "warning")
+        return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+    success, questions, msg = HtmlQuestionParser.parse_google_forms_url(form_url)
+    if not success or not questions:
+        flash(msg, "danger")
+        return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+    ok, count, save_msg = AssessmentService.add_questions_bulk(assessment_id, questions)
+    if ok:
+        flash(f"{msg} ({count} questions successfully imported into this assessment).", "success")
+    else:
+        flash(f"Extracted questions but could not save: {save_msg}", "danger")
+
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
 
 @teacher_bp.route("/assessment/<assessment_id>/delete-question/<question_id>", methods=["POST"])
 @teacher_required
@@ -312,11 +582,122 @@ def delete_question(assessment_id, question_id):
         flash(f"Could not delete question: {msg}", "danger")
     return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
 
+
+@teacher_bp.route("/assessment/<assessment_id>/parse-document-questions", methods=["POST"])
+@teacher_required
+def parse_document_questions(assessment_id):
+    """
+    Parses questions from an uploaded document (PDF, Word) or image (JPG, PNG, WEBP).
+    Filters out noise (college headers, exam instructions, student fields) and returns
+    structured questions for lecturer confirmation.
+    """
+    file = request.files.get("document_file")
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "No file was uploaded."}), 400
+
+    filename = file.filename
+    if not DocumentQuestionParser.is_allowed_file(filename):
+        return jsonify({
+            "success": False,
+            "message": f"Unsupported file type '{filename}'. Please upload a PDF, Word document (.docx/.doc), or Image (.jpg, .png, .webp)."
+        }), 400
+
+    try:
+        file_bytes = file.read()
+        default_marks = float(request.form.get("default_marks", 5.0) or 5.0)
+    except (ValueError, TypeError):
+        default_marks = 5.0
+
+    subject = request.form.get("subject", "").strip()
+    if not subject:
+        asm = AssessmentService.get_assessment_by_id(assessment_id)
+        if asm:
+            subject = f"{asm.get('subject_code', '')} {asm.get('title', '')}".strip()
+
+    success, questions, msg = DocumentQuestionParser.parse_uploaded_file(
+        file_bytes=file_bytes,
+        filename=filename,
+        default_marks=default_marks,
+        subject=subject
+    )
+
+    return jsonify({
+        "success": success,
+        "filename": filename,
+        "questions": questions,
+        "count": len(questions),
+        "message": msg
+    })
+
+
+@teacher_bp.route("/assessment/<assessment_id>/confirm-document-questions", methods=["POST"])
+@teacher_required
+def confirm_document_questions(assessment_id):
+    """
+    Saves the questions confirmed/edited by the lecturer into the assessment.
+    """
+    data = request.get_json() or {}
+    questions = data.get("questions", [])
+    if not questions or not isinstance(questions, list):
+        return jsonify({"success": False, "message": "No questions provided to save."}), 400
+
+    cleaned_questions = []
+    for idx, q in enumerate(questions, 1):
+        q_text = str(q.get("question_text", "")).strip()
+        if not q_text:
+            continue
+        q_num = str(q.get("question_number", idx)).strip() or str(idx)
+        q_type = str(q.get("question_type", "descriptive")).strip().lower()
+        if q_type not in ("mcq", "descriptive"):
+            q_type = "descriptive"
+
+        try:
+            max_m = float(q.get("max_marks", 1.0 if q_type == "mcq" else 5.0))
+        except (ValueError, TypeError):
+            max_m = 1.0 if q_type == "mcq" else 5.0
+
+        item = {
+            "question_number": q_num,
+            "question_type": q_type,
+            "question_text": q_text,
+            "max_marks": max_m,
+            "model_answer": str(q.get("model_answer", "")).strip(),
+            "difficulty": str(q.get("difficulty", "medium")).strip().lower(),
+            "requires_diagram": bool(q.get("requires_diagram", False)),
+            "requires_numerical": bool(q.get("requires_numerical", False))
+        }
+
+        if q_type == "mcq":
+            item["option_a"] = str(q.get("option_a", "")).strip()
+            item["option_b"] = str(q.get("option_b", "")).strip()
+            item["option_c"] = str(q.get("option_c", "")).strip()
+            item["option_d"] = str(q.get("option_d", "")).strip()
+            clean_opt = str(q.get("correct_option", "A")).strip().upper()
+            item["correct_option"] = clean_opt if clean_opt in ("A", "B", "C", "D") else "A"
+        else:
+            criteria = q.get("criteria", [])
+            if criteria and isinstance(criteria, list):
+                item["criteria"] = criteria
+
+        cleaned_questions.append(item)
+
+    if not cleaned_questions:
+        return jsonify({"success": False, "message": "No valid questions were submitted."}), 400
+
+    ok, count, msg = AssessmentService.add_questions_bulk(assessment_id, cleaned_questions)
+    return jsonify({
+        "success": ok,
+        "count": count,
+        "message": msg or f"Successfully added {count} questions to the assessment."
+    })
+
+
 @teacher_bp.route("/students", methods=["GET", "POST"])
 @teacher_required
 def manage_students():
     """Student roster management with Excel/CSV preview & validation."""
-    students = StudentService.get_all_students()
+    teacher_id = session.get("teacher_id")
+    students = StudentService.get_all_students(teacher_id=teacher_id)
     preview_data = None
     invalid_rows = None
 
@@ -343,13 +724,14 @@ def manage_students():
 @teacher_bp.route("/students/confirm-import", methods=["POST"])
 @teacher_required
 def confirm_student_import():
-    """Commits parsed preview students to Supabase database."""
+    """Commits parsed preview students to Supabase or tenant database."""
     pending = session.pop("pending_roster_import", None)
     if not pending:
         flash("No pending student import found. Please upload the file again.", "warning")
         return redirect(url_for("teacher.manage_students"))
 
-    summary = StudentService.import_students(pending)
+    teacher_id = session.get("teacher_id")
+    summary = StudentService.import_students(pending, teacher_id=teacher_id)
     flash(f"Import complete! {summary['inserted']} students successfully saved.", "success")
     return redirect(url_for("teacher.manage_students"))
 
@@ -368,7 +750,13 @@ def edit_student(student_id):
         "contact_email": request.form.get("contact_email", "").strip(),
         "is_active": request.form.get("is_active") == "1"
     }
-    success, msg = StudentService.update_student(student_id, data)
+    teacher_id = session.get("teacher_id")
+    success, msg = StudentService.update_student(student_id, data, teacher_id=teacher_id)
+    if success:
+        flash(f"Student profile for {data['pin'] or student_id} updated successfully.", "success")
+    else:
+        flash(f"Failed to update student: {msg}", "danger")
+    return redirect(url_for("teacher.manage_students"))
     if success:
         flash(f"Student profile for {data['pin'] or student_id} updated successfully.", "success")
     else:
@@ -410,7 +798,8 @@ def delete_students_batch():
         flash("Please select at least one student to delete.", "warning")
         return redirect(url_for("teacher.manage_students"))
 
-    success, count, msg = StudentService.delete_students(selected_ids)
+    teacher_id = session.get("teacher_id")
+    success, count, msg = StudentService.delete_students(selected_ids, teacher_id=teacher_id)
     if success:
         flash(f"Successfully deleted {count} student(s) from roster.", "info")
     else:
@@ -508,6 +897,16 @@ def api_run_ai_evaluation():
     results = {}
     total_ai_marks = 0.0
 
+    material_ctx = ""
+    try:
+        material_ctx = MaterialService.get_structured_context_for_assessment(
+            assessment_id=sub.get("assessment_id"),
+            subject_code=assessment.get("subject_code") or assessment.get("subject"),
+            unit_topic=assessment.get("unit_topic") or assessment.get("unit")
+        )
+    except Exception as e:
+        logger.warning(f"Could not load material context for assessment: {e}")
+
     for q in questions_to_eval:
         qid = q["id"]
         q_pages = [p for p in all_pages if p.get("question_id") == qid]
@@ -517,7 +916,8 @@ def api_run_ai_evaluation():
         eval_result = AIService.evaluate_question(
             question_data=q,
             marking_criteria=criteria,
-            page_images=q_pages
+            page_images=q_pages,
+            material_context=material_ctx
         )
 
         awarded_m = float(eval_result.get("marks_awarded", 0.0))
@@ -692,3 +1092,144 @@ def result_analytics(assessment_id):
         assessment=assessment,
         analytics=analytics
     )
+
+# ==========================================
+# Course Syllabus & Materials Management
+# ==========================================
+
+@teacher_bp.route("/materials")
+@teacher_required
+def manage_materials():
+    """Lecturer materials and syllabus management dashboard."""
+    materials = MaterialService.get_all_materials()
+    assessments = AssessmentService.get_all_assessments()
+
+    total_count = len(materials)
+    syllabus_count = sum(1 for m in materials if m.get("material_type") == "syllabus")
+    notes_count = sum(1 for m in materials if m.get("material_type") in ("lecture_notes", "reference_material"))
+    
+    total_formulas = 0
+    total_definitions = 0
+    total_units = 0
+    for m in materials:
+        sc = m.get("structured_content") or {}
+        total_formulas += len(sc.get("key_formulas", []))
+        total_definitions += len(sc.get("key_definitions", []))
+        total_units += len(sc.get("units", []))
+
+    stats = {
+        "total": total_count,
+        "syllabus": syllabus_count,
+        "notes": notes_count,
+        "formulas": total_formulas,
+        "definitions": total_definitions,
+        "units": total_units
+    }
+
+    return render_template(
+        "teacher/materials.html",
+        materials=materials,
+        assessments=assessments,
+        stats=stats
+    )
+
+
+@teacher_bp.route("/materials/upload", methods=["POST"])
+@teacher_required
+def upload_material():
+    """Uploads, extracts, and structures syllabus/study materials."""
+    file = request.files.get("material_file")
+    if not file or not file.filename:
+        flash("Please select a file to upload (.pdf, .docx, .doc, .png, .jpg).", "warning")
+        return redirect(url_for("teacher.manage_materials"))
+
+    title = request.form.get("title", "").strip() or file.filename
+    material_type = request.form.get("material_type", "syllabus").strip()
+    subject_code = request.form.get("subject_code", "").strip()
+    unit_topic = request.form.get("unit_topic", "").strip()
+    assessment_id = request.form.get("assessment_id", "").strip() or None
+    teacher_id = session.get("teacher_id")
+
+    success, material, msg = MaterialService.save_and_process_material(
+        file=file,
+        title=title,
+        material_type=material_type,
+        subject_code=subject_code,
+        unit_topic=unit_topic,
+        assessment_id=assessment_id,
+        created_by=teacher_id
+    )
+
+    if success and material:
+        sc = material.get("structured_content") or {}
+        num_u = len(sc.get("units", []))
+        num_f = len(sc.get("key_formulas", []))
+        num_d = len(sc.get("key_definitions", []))
+        flash(f"🎉 Successfully uploaded and processed '{material.get('title')}'! Extracted {num_u} units/topics, {num_f} formulas, and {num_d} key definitions.", "success")
+    else:
+        flash(f"Could not process material: {msg}", "danger")
+
+    return redirect(url_for("teacher.manage_materials"))
+
+
+@teacher_bp.route("/materials/<material_id>")
+@teacher_required
+def get_material_details(material_id):
+    """Returns material details and structured content as JSON for the modal."""
+    material = MaterialService.get_material_by_id(material_id)
+    if not material:
+        return jsonify({"success": False, "message": "Material not found"}), 404
+    return jsonify({"success": True, "material": material})
+
+
+@teacher_bp.route("/materials/<material_id>/download")
+@teacher_required
+def download_material(material_id):
+    """Downloads the original material file."""
+    material = MaterialService.get_material_by_id(material_id)
+    if not material:
+        flash("Material not found.", "danger")
+        return redirect(url_for("teacher.manage_materials"))
+
+    rel_path = material.get("file_path", "")
+    full_path = os.path.join(Config.BASE_DIR, rel_path.lstrip("/\\"))
+    if not os.path.exists(full_path):
+        flash("File not found on server.", "danger")
+        return redirect(url_for("teacher.manage_materials"))
+
+    return send_file(
+        full_path,
+        as_attachment=True,
+        download_name=material.get("file_name") or os.path.basename(full_path)
+    )
+
+
+@teacher_bp.route("/materials/<material_id>/delete", methods=["POST"])
+@teacher_required
+def delete_material(material_id):
+    """Deletes material record and file."""
+    success, msg = MaterialService.delete_material(material_id)
+    if success:
+        flash("Material deleted successfully.", "info")
+    else:
+        flash(f"Could not delete material: {msg}", "danger")
+    return redirect(url_for("teacher.manage_materials"))
+
+
+@teacher_bp.route("/assessment/<assessment_id>/attach-material", methods=["POST"])
+@teacher_required
+def attach_material(assessment_id):
+    """Attaches an uploaded material to a specific assessment."""
+    material_id = request.form.get("material_id")
+    if not material_id:
+        flash("No material selected.", "warning")
+        return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+
+    ok, msg = MaterialService.attach_to_assessment(material_id, assessment_id)
+    if ok:
+        flash("Material attached to assessment successfully! AI evaluation and question generation will use this material.", "success")
+    else:
+        flash(f"Could not attach material: {msg}", "danger")
+
+    return redirect(url_for("teacher.manage_questions", assessment_id=assessment_id))
+

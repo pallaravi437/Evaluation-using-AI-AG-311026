@@ -13,6 +13,8 @@ logger = logging.getLogger("bea.submission_service")
 # Local in-memory store for drafts & submissions when running locally before Supabase sync
 _local_submissions: Dict[str, Dict[str, Any]] = {}  # key: (assessment_id, student_id)
 _local_pages: Dict[str, List[Dict[str, Any]]] = {}  # key: submission_id
+_local_evaluations: Dict[str, Dict[str, Any]] = {}  # key: submission_id -> {question_id: eval_dict}
+_local_rechecks: Dict[str, Dict[str, Any]] = {}  # key: f"{submission_id}_{question_id}"
 
 class SubmissionService:
     """
@@ -104,6 +106,47 @@ class SubmissionService:
                 }
             ]
         return recent
+
+    @classmethod
+    def get_submissions_for_assessment(cls, assessment_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves all submissions for an assessment, newest first.
+        Includes nested student info for display. Falls back to the local
+        in-memory store when Supabase is unconfigured or unreachable.
+        """
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                res = supabase.table("answer_submissions").select(
+                    "*, students(id, pin, full_name, branch, section)"
+                ).eq("assessment_id", assessment_id).order("submitted_at", desc=True).execute()
+                return res.data or []
+            except Exception as e:
+                logger.error(f"Error fetching submissions for assessment {assessment_id}: {e}")
+
+        # Local mode: enrich records with student details for the teacher view
+        from services.student_service import _local_students
+        subs = []
+        for sub in _local_submissions.values():
+            if sub.get("assessment_id") != assessment_id:
+                continue
+            record = dict(sub)
+            student = next(
+                (st for st in _local_students if st.get("id") == sub.get("student_id")
+                 or st.get("pin") == sub.get("student_id")),
+                None
+            )
+            record["students"] = {
+                "id": sub.get("student_id"),
+                "pin": (student or {}).get("pin", sub.get("student_id", "")),
+                "full_name": (student or {}).get("full_name", "Student"),
+                "branch": (student or {}).get("branch", "ECE"),
+                "section": (student or {}).get("section", "A"),
+            } if student else None
+            subs.append(record)
+
+        subs.sort(key=lambda s: s.get("submitted_at") or s.get("created_at") or "", reverse=True)
+        return subs
 
     @classmethod
     def get_or_create_draft_submission(cls, assessment_id: str, student_id: str) -> Dict[str, Any]:
@@ -257,10 +300,11 @@ class SubmissionService:
         return _local_pages.get(submission_id, [])
 
     @classmethod
-    def finalize_submission(cls, submission_id: str, client_ip: str = "", user_agent: str = "") -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    def finalize_submission(cls, submission_id: str, client_ip: str = "", user_agent: str = "", mcq_answers: Optional[Dict[str, str]] = None) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
         Enforces final submission:
-        - Locks student editing (is_locked = True, status = 'submitted').
+        - Locks student editing (is_locked = True, status = 'submitted' or 'approved' for MCQs).
+        - Auto-grades MCQs against answer keys with instantaneous scoring.
         - Records server timestamp in Asia/Kolkata timezone.
         - Returns submission receipt.
         """
@@ -274,17 +318,86 @@ class SubmissionService:
         now_utc = datetime.now(timezone.utc)
         now_kolkata = now_utc.astimezone(Config.TIMEZONE).strftime("%d %b %Y, %I:%M:%S %p %Z")
 
+        # Auto-grade MCQs if student submitted choices
+        evaluations_dict = {}
+        if mcq_answers:
+            from services.assessment_service import AssessmentService
+            asm = AssessmentService.get_assessment_by_id(sub.get("assessment_id", ""))
+            if asm and asm.get("questions"):
+                mcq_score = 0.0
+                total_mcq_possible = 0.0
+                for q in asm["questions"]:
+                    qid = str(q.get("id"))
+                    q_num = str(q.get("question_number"))
+                    correct_opt = (q.get("correct_option") or "A").strip().upper()
+                    student_choice = (mcq_answers.get(qid) or mcq_answers.get(q_num) or "").strip().upper()
+                    q_max = float(q.get("max_marks", 1.0))
+                    total_mcq_possible += q_max
+                    is_correct = bool(student_choice and student_choice == correct_opt)
+                    awarded = q_max if is_correct else 0.0
+                    mcq_score += awarded
+
+                    eval_record = {
+                        "id": str(uuid.uuid4()),
+                        "submission_id": submission_id,
+                        "question_id": qid,
+                        "ai_marks_awarded": awarded,
+                        "approved_marks": awarded,
+                        "max_marks": q_max,
+                        "student_selected_option": student_choice,
+                        "correct_option": correct_opt,
+                        "is_correct": is_correct,
+                        "model_answer": q.get("model_answer", ""),
+                        "explanation": q.get("model_answer", "") or f"Option {correct_opt} is the correct answer.",
+                        "approval_status": "approved_as_is",
+                        "ai_student_feedback": f"Selected Option {student_choice or 'None'}. {'✓ Correct! Full marks awarded.' if is_correct else f'✗ Incorrect. Correct answer is Option {correct_opt}.'}"
+                    }
+                    evaluations_dict[qid] = eval_record
+
+                sub["mcq_answers"] = mcq_answers
+                sub["ai_total_marks"] = mcq_score
+                sub["official_total_marks"] = mcq_score
+                max_total = float(asm.get("max_marks") or total_mcq_possible or 1.0)
+                sub["percentage"] = round((mcq_score / max_total) * 100, 1)
+                sub["pass_status"] = "pass" if sub["percentage"] >= float(asm.get("pass_percentage", 35.0)) else "fail"
+                sub["status"] = "approved"
+
+        _local_evaluations[submission_id] = evaluations_dict
+
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:
             try:
                 update_data = {
-                    "status": "submitted",
+                    "status": sub.get("status", "submitted"),
                     "is_locked": True,
                     "submitted_at": now_utc.isoformat(),
                     "client_ip": client_ip,
                     "user_agent": user_agent
                 }
+                if mcq_answers:
+                    update_data["ai_total_marks"] = sub.get("ai_total_marks")
+                    update_data["official_total_marks"] = sub.get("official_total_marks")
+                    update_data["percentage"] = sub.get("percentage")
+                    update_data["pass_status"] = sub.get("pass_status")
+
                 res = supabase.table("answer_submissions").update(update_data).eq("id", submission_id).execute()
+
+                # Upsert individual evaluations into Supabase
+                for qid, ev_row in evaluations_dict.items():
+                    try:
+                        supabase.table("question_evaluations").upsert({
+                            "submission_id": submission_id,
+                            "question_id": qid,
+                            "ai_marks_awarded": ev_row["ai_marks_awarded"],
+                            "approved_marks": ev_row["approved_marks"],
+                            "max_marks": ev_row["max_marks"],
+                            "approval_status": "approved_as_is",
+                            "ai_student_feedback": ev_row["ai_student_feedback"],
+                            "ai_model_answer_reference": ev_row["explanation"]
+                        }, on_conflict="submission_id,question_id").execute()
+                    except Exception as q_err:
+                        logger.warning(f"Note inserting evaluation row: {q_err}")
+
                 if res.data:
                     updated = res.data[0]
                     updated["submitted_at_formatted"] = now_kolkata
@@ -294,11 +407,30 @@ class SubmissionService:
                 return False, None, str(e)
 
         # Local mode
-        sub["status"] = "submitted"
+        if not mcq_answers:
+            sub["status"] = "submitted"
         sub["is_locked"] = True
         sub["submitted_at"] = now_utc.isoformat()
         sub["submitted_at_formatted"] = now_kolkata
         return True, sub, "Submission finalized (Local mode)."
+
+    @classmethod
+    def get_evaluations_for_submission(cls, submission_id: str) -> Dict[str, Dict[str, Any]]:
+        """Returns question evaluations mapping question_id -> evaluation details."""
+        supabase = db_manager.get_supabase(use_service_role=True)
+        evals = {}
+        if supabase:
+            try:
+                res = supabase.table("question_evaluations").select("*").eq("submission_id", submission_id).execute()
+                for row in (res.data or []):
+                    evals[row["question_id"]] = row
+                if evals:
+                    return evals
+            except Exception as e:
+                logger.error(f"Error fetching evaluations from Supabase: {e}")
+
+        # Local mode fallback
+        return _local_evaluations.get(submission_id, {})
 
     @classmethod
     def get_submission_by_id(cls, submission_id: str) -> Optional[Dict[str, Any]]:

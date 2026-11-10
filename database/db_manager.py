@@ -46,6 +46,26 @@ class DatabaseManager:
     _supabase_client: Optional[Client] = None
     _service_client: Optional[Client] = None
 
+    # Placeholder detection is shared with Config so .env.example tokens
+    # are recognised consistently across Supabase and Gemini credentials.
+    _is_placeholder = staticmethod(Config.is_placeholder)
+
+    @property
+    def is_configured(self) -> bool:
+        """True only when real (non-placeholder) Supabase credentials are present."""
+        return not self._is_placeholder(self.url) and (
+            not self._is_placeholder(self.anon_key) or not self._is_placeholder(self.service_key)
+        )
+
+    @property
+    def _effective_service_key(self) -> str:
+        """Service role key if real, otherwise fall back to a real anon key."""
+        if not self._is_placeholder(self.service_key):
+            return self.service_key
+        if not self._is_placeholder(self.anon_key):
+            return self.anon_key
+        return ""
+
     def __init__(self):
         self.url = Config.SUPABASE_URL
         self.anon_key = Config.SUPABASE_KEY
@@ -64,20 +84,27 @@ class DatabaseManager:
         Returns a Supabase client.
         - If use_service_role is True, uses SUPABASE_SERVICE_ROLE_KEY for server-side trusted operations.
         - Otherwise uses SUPABASE_KEY (anon/public).
+        - Returns None when credentials are missing or are unedited .env.example
+          placeholders, so callers fall back to local/demo mode instead of
+          attempting (and failing) network calls to a fake host.
         """
         if not SUPABASE_SDK_AVAILABLE:
             logger.warning("Supabase SDK is not installed.")
             return None
 
+        if not self.is_configured:
+            return None
+
         if use_service_role:
-            if not self._service_client and self.url and self.service_key:
+            service_key = self._effective_service_key
+            if not self._service_client and self.url and service_key:
                 try:
-                    self._service_client = create_client(self.url, self.service_key)
+                    self._service_client = create_client(self.url, service_key)
                 except Exception as e:
                     logger.error(f"Error creating Supabase service client: {e}")
             return self._service_client
         else:
-            if not self._supabase_client and self.url and self.anon_key:
+            if not self._supabase_client and self.url and not self._is_placeholder(self.anon_key):
                 try:
                     self._supabase_client = create_client(self.url, self.anon_key)
                 except Exception as e:
@@ -90,11 +117,11 @@ class DatabaseManager:
         Returns a comprehensive diagnostic report.
         """
         report = {
-            "configured": bool(self.url and (self.anon_key or self.service_key)),
+            "configured": self.is_configured,
             "supabase_url": self.url or "Not configured",
-            "has_anon_key": bool(self.anon_key),
-            "has_service_key": bool(self.service_key),
-            "has_db_url": bool(self.db_url),
+            "has_anon_key": bool(self.anon_key) and not self._is_placeholder(self.anon_key),
+            "has_service_key": bool(self.service_key) and not self._is_placeholder(self.service_key),
+            "has_db_url": bool(self.db_url) and not self._is_placeholder(self.db_url),
             "api_connected": False,
             "db_connected": False,
             "schema_valid": False,
@@ -161,7 +188,7 @@ class DatabaseManager:
         """
         Executes a SQL migration script against the PostgreSQL database.
         """
-        if not self.db_url or not PSYCOPG2_AVAILABLE:
+        if self._is_placeholder(self.db_url) or not PSYCOPG2_AVAILABLE:
             return False, "Direct database URL (SUPABASE_DB_URL) or psycopg2 is not configured."
 
         if not os.path.exists(filepath):

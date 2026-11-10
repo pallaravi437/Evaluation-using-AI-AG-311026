@@ -31,6 +31,8 @@ student_scripts/
 !static/images/logo.png
 
 # Student private records & local backups
+database/local_store/
+scratch/
 private_records/
 backups/
 *.bak

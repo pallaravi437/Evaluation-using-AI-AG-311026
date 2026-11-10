@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Lecturer Dashboard - BEA Assessment System{% endblock %}
+{% block title %}Lecturer Dashboard - Online Evaluator{% endblock %}
 
 {% block content %}
 <!-- Top Header with Assessment Selector -->
@@ -9,7 +9,7 @@
     <div>
       <h1 style="font-size: 1.6rem; font-weight: 700;">Lecturer Operations Portal</h1>
       <p style="color: var(--text-muted); font-size: 0.85rem;">
-        Subject: <strong>Basic Electronics and Amplifiers (BEA - C26_MEE-105)</strong> • Timezone: <strong>Asia/Kolkata</strong>
+        Subject: <strong>{{ selected_assessment.subject_code if selected_assessment and selected_assessment.subject_code else (selected_assessment.title if selected_assessment else 'All Academic Subjects') }}</strong> • Timezone: <strong>Asia/Kolkata</strong>
       </p>
     </div>
 
@@ -39,14 +39,20 @@
         <span style="font-size: 1.5rem;">📝</span>
         <span class="badge badge-primary">Section 1</span>
       </div>
-      <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem;">Set Questions & Marks</h3>
+      <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem;">Set Questions & Rubrics</h3>
       <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
-        Configure slip tests, assignments, and unit tests with customizable total marks, rubrics, and model answers.
+        Configure questions, rubrics, and model answers for <strong>{{ selected_assessment.title if selected_assessment else 'active assessment' }}</strong>.
       </p>
     </div>
-    <a href="{{ url_for('teacher.manage_assessments') }}" class="btn btn-primary" style="width: 100%;">
-      Manage Questions →
-    </a>
+    {% if selected_assessment %}
+      <a href="{{ url_for('teacher.manage_questions', assessment_id=selected_assessment.id) }}" class="btn btn-primary" style="width: 100%;">
+        Set Questions for this Test →
+      </a>
+    {% else %}
+      <a href="{{ url_for('teacher.manage_assessments') }}" class="btn btn-primary" style="width: 100%;">
+        Select Assessment →
+      </a>
+    {% endif %}
   </div>
 
   <!-- Pillar 2: Evaluate Submissions -->
@@ -124,10 +130,30 @@
   </div>
 </div>
 
+<!-- Live Filter Bar & Quick Controls -->
+<div class="card" style="padding: 1rem 1.25rem; margin-bottom: 1rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border);">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+    <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; max-width: 360px;">
+      <span style="color: var(--text-muted); font-size: 0.9rem;">🔎</span>
+      <input type="text" id="sub-filter-input" class="form-control" placeholder="Quick filter by student name or PIN..." style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" oninput="filterSubmissionsTable()">
+    </div>
+
+    <!-- Status filter pills -->
+    <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
+      <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 0.25rem;">Status:</span>
+      <button type="button" class="btn btn-sm sub-filter-btn" style="background: var(--primary); color: white; padding: 0.25rem 0.65rem; font-size: 0.75rem;" onclick="setSubFilterStatus('all', this)">All</button>
+      <button type="button" class="btn btn-sm sub-filter-btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.75rem;" onclick="setSubFilterStatus('approved', this)">✓ Approved</button>
+      <button type="button" class="btn btn-sm sub-filter-btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.75rem;" onclick="setSubFilterStatus('evaluated', this)">AI Evaluated</button>
+      <button type="button" class="btn btn-sm sub-filter-btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.75rem;" onclick="setSubFilterStatus('submitted', this)">Awaiting AI</button>
+      <button type="button" class="btn btn-sm sub-filter-btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.75rem;" onclick="setSubFilterStatus('draft', this)">Drafts</button>
+    </div>
+  </div>
+</div>
+
 <!-- Submissions Table -->
 <div class="card" style="padding: 0;">
   <div class="table-responsive">
-    <table class="table">
+    <table class="table" id="submissions-table">
       <thead>
         <tr>
           <th>Student Name & PIN</th>
@@ -142,7 +168,7 @@
       <tbody>
         {% for s in submissions %}
           {% set st = s.students or {} %}
-          <tr>
+          <tr class="submission-row" data-status="{{ s.status or 'draft' }}" data-search="{{ (st.full_name or '')|lower }} {{ (st.pin or '')|lower }} {{ (s.submission_receipt_code or '')|lower }}">
             <td>
               <strong>{{ st.full_name or 'Student' }}</strong>
               <div style="font-size: 0.75rem; color: var(--secondary); font-family: monospace;">
@@ -214,6 +240,32 @@
 
 {% block extra_js %}
 <script>
+  let activeStatusFilter = 'all';
+
+  function setSubFilterStatus(status, btn) {
+    activeStatusFilter = status;
+    document.querySelectorAll('.sub-filter-btn').forEach(b => {
+      b.style.background = '';
+      b.className = 'btn btn-sm sub-filter-btn btn-secondary';
+    });
+    btn.className = 'btn btn-sm sub-filter-btn';
+    btn.style.background = 'var(--primary)';
+    btn.style.color = 'white';
+    filterSubmissionsTable();
+  }
+
+  function filterSubmissionsTable() {
+    const q = (document.getElementById('sub-filter-input').value || '').toLowerCase().trim();
+    const rows = document.querySelectorAll('.submission-row');
+    rows.forEach(r => {
+      const searchData = r.getAttribute('data-search') || '';
+      const statusData = r.getAttribute('data-status') || '';
+      const matchesSearch = !q || searchData.includes(q);
+      const matchesStatus = (activeStatusFilter === 'all') || (statusData === activeStatusFilter);
+      r.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
+    });
+  }
+
   function promptReopen(subId, studentName) {
     const reason = prompt(`Reopening submission for ${studentName}.\nPlease enter an audit reason (minimum 5 characters):`);
     if (reason && reason.trim().length >= 5) {

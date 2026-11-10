@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Sign In & Live Submissions - BEA AI Assessment System{% endblock %}
+{% block title %}Sign In & Live Submissions - Online Evaluator{% endblock %}
 
 {% block content %}
 <div style="max-width: 1180px; margin: 1.5rem auto;">
@@ -49,8 +49,13 @@
           </button>
         </form>
 
-        <div style="margin-top: 1.25rem; padding: 0.65rem 0.85rem; background: rgba(79, 70, 229, 0.08); border-radius: var(--radius-sm); font-size: 0.78rem; color: #a5b4fc;">
-          💡 <strong>Demo Quick Test:</strong> Use name <code>KASHABOINA PRANAVI</code> and PIN <code>26054-ES-041</code>.
+        <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="autoFillStudentDemo()" style="width: 100%; font-size: 0.8rem; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8;">
+            ⚡ 1-Click Fill Demo Student (Pranavi - 26054-ES-041)
+          </button>
+          <div style="padding: 0.5rem 0.75rem; background: rgba(79, 70, 229, 0.08); border-radius: var(--radius-sm); font-size: 0.75rem; color: #a5b4fc;">
+            💡 <strong>PIN Authentication:</strong> Validates student name and normalized PIN on backend. No password required.
+          </div>
         </div>
       </div>
 
@@ -63,10 +68,10 @@
           </p>
         </div>
 
-        <form action="{{ url_for('teacher.login') }}" method="POST">
+        <form action="{{ url_for('teacher.login') }}" method="POST" id="teacher-login-form">
           <div class="form-group">
-            <label class="form-label" for="teacher_email">Lecturer Email</label>
-            <input type="email" id="teacher_email" name="email" class="form-control" placeholder="lecturer@bea.edu" required>
+            <label class="form-label" for="teacher_email">Lecturer Email / Username</label>
+            <input type="text" id="teacher_email" name="email" class="form-control" placeholder="teacher or lecturer@bea.edu" required>
           </div>
 
           <div class="form-group">
@@ -79,8 +84,15 @@
           </button>
         </form>
 
-        <div style="margin-top: 1.25rem; padding: 0.65rem 0.85rem; background: rgba(16, 185, 129, 0.08); border-radius: var(--radius-sm); font-size: 0.78rem; color: #6ee7b7;">
-          🔑 <strong>Initial Admin Setup:</strong> <code>lecturer@bea.edu</code> / password: <code>admin123</code>
+        <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="autoFillTeacherDemo()" style="width: 100%; font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">
+            ⚡ 1-Click Fill Demo Lecturer (teacher / teacher123)
+          </button>
+          <div style="text-align: center; margin-top: 0.35rem;">
+            <a href="{{ url_for('teacher.signup') }}" style="color: #38bdf8; font-size: 0.85rem; text-decoration: underline; font-weight: 500;">
+              ✨ New Lecturer? Register here for approval →
+            </a>
+          </div>
         </div>
       </div>
 
@@ -159,7 +171,7 @@
       </div>
 
       <div style="margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-muted); padding-top: 0.5rem; border-top: 1px solid var(--border);">
-        <span>Subject: <strong>Basic Electronics and Amplifiers (BEA)</strong></span>
+        <span>Platform: <strong>Universal Academic Assessments</strong></span>
         <span>Enforcing 1 Final Submission Per Student</span>
       </div>
     </div>
@@ -187,6 +199,16 @@
       studentBtn.style.background = 'var(--primary)';
       teacherBtn.style.background = 'transparent';
     }
+  }
+
+  function autoFillStudentDemo() {
+    document.getElementById('student_name').value = 'KASHABOINA PRANAVI';
+    document.getElementById('student_pin').value = '26054-ES-041';
+  }
+
+  function autoFillTeacherDemo() {
+    document.getElementById('teacher_email').value = 'teacher';
+    document.getElementById('teacher_password').value = 'teacher123';
   }
 </script>
 {% endblock %}

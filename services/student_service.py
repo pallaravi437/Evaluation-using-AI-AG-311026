@@ -446,7 +446,7 @@ class StudentService:
         return valid_rows, invalid_rows
 
     @classmethod
-    def import_students(cls, student_records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def import_students(cls, student_records: List[Dict[str, Any]], teacher_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Safely upserts student records into Supabase without deleting existing students.
         """
@@ -459,7 +459,39 @@ class StudentService:
         }
 
         if not supabase:
-            # Local / simulation mode
+            # Multi-tenant local storage if teacher_id is a registered tenant
+            if teacher_id and teacher_id.startswith("lec-"):
+                import uuid
+                from services.lecturer_service import LecturerService
+                tenant_students = LecturerService.load_tenant_data(teacher_id, "students.json") or []
+                existing_pins = {st.get("pin", "").upper(): idx for idx, st in enumerate(tenant_students)}
+                for st in student_records:
+                    clean_pin = (st.get("pin") or "").strip().upper()
+                    if not clean_pin:
+                        continue
+                    rec = {
+                        "id": st.get("id") or f"st-{uuid.uuid4()}",
+                        "pin": clean_pin,
+                        "full_name": st.get("full_name", "").strip(),
+                        "academic_year": st.get("academic_year", "2026-2027"),
+                        "semester": st.get("semester", "Semester 1"),
+                        "branch": st.get("branch", "ECE"),
+                        "section": st.get("section", "A"),
+                        "contact_phone": st.get("contact_phone", ""),
+                        "contact_email": st.get("contact_email", ""),
+                        "is_active": st.get("is_active", True),
+                        "created_by": teacher_id
+                    }
+                    if clean_pin in existing_pins:
+                        tenant_students[existing_pins[clean_pin]] = rec
+                    else:
+                        tenant_students.append(rec)
+                        existing_pins[clean_pin] = len(tenant_students) - 1
+                    summary["inserted"] += 1
+                LecturerService.save_tenant_data(teacher_id, "students.json", tenant_students)
+                return summary
+
+            # Global Local / simulation mode
             for st in student_records:
                 existing = next((s for s in _local_students if s.get("pin") == st.get("pin")), None)
                 if existing:
@@ -498,8 +530,15 @@ class StudentService:
         return summary
 
     @classmethod
-    def get_all_students(cls) -> List[Dict[str, Any]]:
-        """Retrieves list of students for teacher view."""
+    def get_all_students(cls, teacher_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves list of students for teacher view with multi-tenant isolation."""
+        if teacher_id and teacher_id.startswith("lec-"):
+            from services.lecturer_service import LecturerService
+            tenant_students = LecturerService.load_tenant_data(teacher_id, "students.json")
+            if isinstance(tenant_students, list):
+                return tenant_students
+            return []
+
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:
             try:
@@ -511,8 +550,24 @@ class StudentService:
         return _local_students
 
     @classmethod
-    def update_student(cls, student_id: str, student_data: Dict[str, Any]) -> Tuple[bool, str]:
+    def update_student(cls, student_id: str, student_data: Dict[str, Any], teacher_id: Optional[str] = None) -> Tuple[bool, str]:
         """Updates a student's profile information in Supabase or local store."""
+        if teacher_id and teacher_id.startswith("lec-"):
+            from services.lecturer_service import LecturerService
+            tenant_students = LecturerService.load_tenant_data(teacher_id, "students.json") or []
+            updated = False
+            for st in tenant_students:
+                if st.get("id") == student_id or st.get("pin") == student_id:
+                    for k, v in student_data.items():
+                        if v is not None:
+                            st[k] = v
+                    updated = True
+                    break
+            if updated:
+                LecturerService.save_tenant_data(teacher_id, "students.json", tenant_students)
+                return True, "Student details updated successfully."
+            return False, "Student not found in your roster."
+
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:
             try:
@@ -560,14 +615,23 @@ class StudentService:
         return False, "Student not found."
 
     @classmethod
-    def delete_students(cls, identifiers: List[str]) -> Tuple[bool, int, str]:
-        """Deletes one or multiple students by ID or PIN."""
+    def delete_students(cls, identifiers: List[str], teacher_id: Optional[str] = None) -> Tuple[bool, int, str]:
+        """Deletes one or multiple students by ID or PIN with tenant support."""
         if not identifiers:
             return False, 0, "No students selected for deletion."
 
         clean_ids = [str(i).strip() for i in identifiers if str(i).strip()]
         if not clean_ids:
             return False, 0, "No valid student identifiers provided."
+
+        if teacher_id and teacher_id.startswith("lec-"):
+            from services.lecturer_service import LecturerService
+            tenant_students = LecturerService.load_tenant_data(teacher_id, "students.json") or []
+            id_set = set(clean_ids)
+            filtered = [st for st in tenant_students if st.get("id") not in id_set and st.get("pin") not in id_set]
+            deleted_count = len(tenant_students) - len(filtered)
+            LecturerService.save_tenant_data(teacher_id, "students.json", filtered)
+            return True, deleted_count, f"Successfully deleted {deleted_count} student(s) from your tenant roster."
 
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:

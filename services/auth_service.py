@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, Tuple
 import bcrypt
@@ -131,13 +132,20 @@ class AuthService:
         # Fallback / Setup Mode (Allows lecturer testing before full Supabase sync)
         if clean_pin.startswith("26054-") or clean_pin.startswith("DEMO-"):
             cls._clear_failed_attempts(rate_limit_key)
+            # Resolve against the local roster so demo sessions carry the real
+            # student record (id/pin/name) used by submissions & teacher views.
+            from services.student_service import _local_students
+            roster_match = next(
+                (st for st in _local_students if st.get("pin", "").upper() == clean_pin),
+                None
+            )
             demo_student = {
-                "id": "00000000-0000-0000-0000-000000000001",
+                "id": (roster_match or {}).get("id", "00000000-0000-0000-0000-000000000001"),
                 "pin": clean_pin,
-                "full_name": clean_name,
-                "branch": "ECE",
-                "semester": "Semester 1",
-                "section": "A",
+                "full_name": (roster_match or {}).get("full_name", clean_name),
+                "branch": (roster_match or {}).get("branch", "ECE"),
+                "semester": (roster_match or {}).get("semester", ""),
+                "section": (roster_match or {}).get("section", "A"),
                 "role": "student"
             }
             return True, demo_student, "Login successful (Setup mode)."
@@ -146,13 +154,30 @@ class AuthService:
         return False, None, "Student record not found. Please verify your PIN."
 
     @classmethod
+    def register_lecturer(cls, full_name: str, username: str, email: str, password: str,
+                          mobile: str = "", subject: str = "", specialization: str = "") -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """Register a new lecturer account (pending admin approval)."""
+        from services.lecturer_service import LecturerService
+        return LecturerService.register_lecturer(
+            full_name=full_name,
+            username=username,
+            email=email,
+            password=password,
+            subject=subject,
+            mobile=mobile,
+            specialization=specialization
+        )
+
+    @classmethod
     def authenticate_teacher(cls, email: str, password: str, client_ip: str = "") -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
-        Validates teacher email and password using Bcrypt.
+        Validates teacher email/username and password using Bcrypt.
+        First validates admin superuser (admin / 87654321) & approved lecturers,
+        then checks Supabase teacher_profiles, and falls back to setup defaults.
         """
         clean_email = email.strip().lower()
         if not clean_email or not password:
-            return False, None, "Please enter both Email and Password."
+            return False, None, "Please enter both Email/Username and Password."
 
         rate_limit_key = f"teacher_{clean_email}_{client_ip}"
         is_locked, remaining_secs = cls._is_rate_limited(rate_limit_key)
@@ -160,6 +185,21 @@ class AuthService:
             minutes = (remaining_secs // 60) + 1
             return False, None, f"Too many failed attempts. Locked for {minutes} minutes."
 
+        # 1. Check LecturerService (Admin superuser: admin / 87654321, and approved lecturers)
+        try:
+            from services.lecturer_service import LecturerService
+            success, lecturer_data, message = LecturerService.authenticate_lecturer(clean_email, password)
+            if success and lecturer_data:
+                cls._clear_failed_attempts(rate_limit_key)
+                return True, lecturer_data, message
+            elif message and "pending" in message.lower():
+                return False, None, message
+            elif message and "suspended" in message.lower():
+                return False, None, message
+        except Exception as e:
+            logger.error(f"LecturerService authentication check error: {e}")
+
+        # 2. Check Supabase teacher_profiles
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:
             try:
@@ -193,13 +233,12 @@ class AuthService:
             except Exception as e:
                 logger.error(f"Teacher authentication error: {e}")
 
-        # Default teacher credentials for initial setup (when database is empty)
-        # Email: lecturer@bea.edu / Password: admin
-        if clean_email in ("lecturer@bea.edu", "admin@bea.edu", "teacher@bea.edu") and password in ("admin123", "admin", "bea2026"):
+        # 3. Default teacher credentials for initial setup / testing
+        if clean_email in ("lecturer@bea.edu", "teacher@bea.edu", "teacher") and password in ("admin123", "admin", "bea2026", "teacher123"):
             cls._clear_failed_attempts(rate_limit_key)
             return True, {
                 "id": "11111111-1111-1111-1111-111111111111",
-                "email": clean_email,
+                "email": clean_email if "@" in clean_email else f"{clean_email}@bea.edu",
                 "full_name": "BEA Course Lecturer",
                 "role": "lecturer"
             }, "Login successful (Default administrative session)."

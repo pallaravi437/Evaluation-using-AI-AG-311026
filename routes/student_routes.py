@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from services.auth_service import AuthService
 from services.assessment_service import AssessmentService
@@ -7,6 +8,15 @@ from services.image_service import ImageService
 from database.db_manager import db_manager
 
 logger = logging.getLogger("bea.student_routes")
+
+def _extract_mcq_answers(form) -> dict:
+    """Parses all MCQ answer fields from a submitted form."""
+    return {
+        key[len("mcq_answer_"):]: val.strip().upper()
+        for key, val in form.items()
+        if key.startswith("mcq_answer_")
+    }
+
 student_bp = Blueprint("student", __name__, url_prefix="/student")
 
 def student_required(f):
@@ -22,8 +32,8 @@ def student_required(f):
 @student_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        pin = request.form.get("pin", "").strip()
+        name = (request.form.get("name") or request.form.get("student_name") or "").strip()
+        pin = (request.form.get("pin") or request.form.get("student_pin") or "").strip()
         client_ip = request.remote_addr or ""
 
         success, student_data, message = AuthService.authenticate_student(name, pin, client_ip)
@@ -68,15 +78,20 @@ def dashboard():
 @student_bp.route("/assessment/<assessment_id>/upload")
 @student_required
 def upload_answers(assessment_id):
+    """Slip Test handwritten answer script upload interface."""
     student_id = session.get("student_id")
     assessment = AssessmentService.get_assessment_by_id(assessment_id)
     if not assessment:
         flash("Assessment not found.", "danger")
         return redirect(url_for("student.dashboard"))
 
+    # If this is an MCQ Test, redirect to the MCQ test interface
+    if assessment.get("assessment_type") == "mcq_test":
+        return redirect(url_for("student.take_mcq_test", assessment_id=assessment_id))
+
     submission = SubmissionService.get_or_create_draft_submission(assessment_id, student_id)
     if submission.get("is_locked", False):
-        flash("This assessment was already submitted and locked. You can view your receipt or results.", "info")
+        flash("This Slip Test was already submitted and locked. You can view your receipt or results.", "info")
         return redirect(url_for("student.submission_receipt", submission_id=submission["id"]))
 
     pages = SubmissionService.get_pages_for_submission(submission["id"])
@@ -93,6 +108,109 @@ def upload_answers(assessment_id):
         submission=submission,
         question_pages=question_pages
     )
+
+@student_bp.route("/assessment/<assessment_id>/mcq-test")
+@student_required
+def take_mcq_test(assessment_id):
+    """MCQ Test workflow: questions presented one at a time, automatic zero-AI grading."""
+    student_id = session.get("student_id")
+    assessment = AssessmentService.get_assessment_by_id(assessment_id)
+    if not assessment:
+        flash("Assessment not found.", "danger")
+        return redirect(url_for("student.dashboard"))
+
+    submission = SubmissionService.get_or_create_draft_submission(assessment_id, student_id)
+    if submission.get("is_locked", False):
+        flash("You have already submitted this MCQ Test. Your score and answer review are below.", "info")
+        return redirect(url_for("student.mcq_results", assessment_id=assessment_id))
+
+    return render_template(
+        "student/mcq_test.html",
+        assessment=assessment,
+        submission=submission
+    )
+
+@student_bp.route("/assessment/<assessment_id>/submit-mcq", methods=["POST"])
+@student_required
+def submit_mcq_test(assessment_id):
+    """Submits MCQ Test and calculates score automatically using stored database answers (Zero AI / Gemini API)."""
+    submission_id = request.form.get("submission_id")
+    client_ip = request.remote_addr or ""
+    user_agent = request.headers.get("User-Agent", "")
+
+    mcq_answers = _extract_mcq_answers(request.form)
+
+    success, sub, msg = SubmissionService.finalize_submission(
+        submission_id=submission_id,
+        client_ip=client_ip,
+        user_agent=user_agent,
+        mcq_answers=mcq_answers
+    )
+    if success and sub:
+        flash("MCQ Test submitted successfully! Your score and answer review are shown below.", "success")
+        return redirect(url_for("student.mcq_results", assessment_id=assessment_id))
+    else:
+        flash(f"Submission error: {msg}", "danger")
+        return redirect(url_for("student.dashboard"))
+
+@student_bp.route("/assessment/<assessment_id>/mcq-results")
+@student_required
+def mcq_results(assessment_id):
+    """Immediate MCQ Test Result & Question-by-Question Review with Visual Indicators."""
+    student_id = session.get("student_id")
+    assessment = AssessmentService.get_assessment_by_id(assessment_id)
+    if not assessment:
+        flash("Assessment not found.", "danger")
+        return redirect(url_for("student.dashboard"))
+
+    sub = SubmissionService.get_or_create_draft_submission(assessment_id, student_id)
+    evaluations = SubmissionService.get_evaluations_for_submission(sub["id"])
+
+    # Compute breakdown statistics for immediate result display
+    total_q = len(assessment.get("questions", []))
+    correct_count = 0
+    incorrect_count = 0
+    unanswered_count = 0
+
+    for idx, q in enumerate(assessment.get("questions", []), start=1):
+        qid = q.get("id") or str(idx)
+        ev = evaluations.get(qid, {})
+        student_choice = ev.get("student_selected_option", "")
+        correct_opt = (q.get("correct_option") or ev.get("correct_option") or "A").strip().upper()
+        if not student_choice:
+            unanswered_count += 1
+        elif student_choice == correct_opt:
+            correct_count += 1
+        else:
+            incorrect_count += 1
+
+    stats = {
+        "total_questions": total_q,
+        "correct_answers": correct_count,
+        "incorrect_answers": incorrect_count,
+        "unanswered": unanswered_count
+    }
+
+    return render_template(
+        "student/mcq_results.html",
+        assessment=assessment,
+        submission=sub,
+        evaluations=evaluations,
+        stats=stats
+    )
+
+@student_bp.route("/assessment/<assessment_id>/slip-test")
+@student_required
+def take_slip_test(assessment_id):
+    """Preserves existing Slip Test entrypoint, redirecting to the question-wise script upload module."""
+    return redirect(url_for("student.upload_answers", assessment_id=assessment_id))
+
+@student_bp.route("/assessment/<assessment_id>/submit-slip-test", methods=["POST"])
+@student_required
+def submit_slip_test(assessment_id):
+    """Alias for finalize_submission for Slip Test scripts."""
+    return redirect(url_for("student.finalize_submission"), code=307)
+
 
 @student_bp.route("/api/upload-page", methods=["POST"])
 @student_required
@@ -152,7 +270,14 @@ def finalize_submission():
     client_ip = request.remote_addr or ""
     user_agent = request.headers.get("User-Agent", "")
 
-    success, sub, msg = SubmissionService.finalize_submission(submission_id, client_ip, user_agent)
+    mcq_answers = _extract_mcq_answers(request.form)
+
+    success, sub, msg = SubmissionService.finalize_submission(
+        submission_id=submission_id,
+        client_ip=client_ip,
+        user_agent=user_agent,
+        mcq_answers=mcq_answers
+    )
     if success and sub:
         flash("Your assessment answer script has been officially submitted!", "success")
         return redirect(url_for("student.submission_receipt", submission_id=sub["id"]))
@@ -189,9 +314,9 @@ def results(assessment_id):
     # Fetch this student's submission
     sub = SubmissionService.get_or_create_draft_submission(assessment_id, student_id)
     
-    # Fetch questions and approved evaluations
+    # Fetch questions and evaluations
     supabase = db_manager.get_supabase(use_service_role=True)
-    evaluations = {}
+    evaluations = SubmissionService.get_evaluations_for_submission(sub["id"])
     rechecks = {}
 
     if supabase:
@@ -205,6 +330,12 @@ def results(assessment_id):
                 rechecks[rc["question_id"]] = rc
         except Exception as e:
             logger.error(f"Error fetching student results: {e}")
+    else:
+        # Local mode: pull objections raised for this submission
+        from services.submission_service import _local_rechecks
+        for rc in _local_rechecks.values():
+            if rc.get("submission_id") == sub["id"]:
+                rechecks[rc["question_id"]] = rc
 
     return render_template(
         "student/results.html",
@@ -228,6 +359,28 @@ def submit_recheck():
         return redirect(request.referrer or url_for("student.dashboard"))
 
     supabase = db_manager.get_supabase(use_service_role=True)
+    if not supabase:
+        # Local mode: record the objection in the in-memory store
+        from services.submission_service import _local_evaluations, _local_rechecks
+        evals = _local_evaluations.get(submission_id, {})
+        ev = evals.get(question_id)
+        if not ev:
+            flash("Evaluation record not found for this question.", "danger")
+            return redirect(request.referrer or url_for("student.dashboard"))
+
+        current_marks = ev.get("approved_marks") or ev.get("ai_marks_awarded") or 0.0
+        _local_rechecks[f"{submission_id}_{question_id}"] = {
+            "submission_id": submission_id,
+            "question_id": question_id,
+            "student_id": student_id,
+            "student_objection_reason": student_reason,
+            "marks_before_recheck": current_marks,
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        flash("Your recheck objection has been submitted to the lecturer for review.", "success")
+        return redirect(request.referrer or url_for("student.dashboard"))
+
     if supabase:
         try:
             # Check question evaluation

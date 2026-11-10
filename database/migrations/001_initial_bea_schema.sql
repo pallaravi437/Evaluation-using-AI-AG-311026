@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS public.topics (
 CREATE TABLE IF NOT EXISTS public.assessments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(200) NOT NULL,
-    assessment_type VARCHAR(50) NOT NULL CHECK (assessment_type IN ('slip_test', 'assignment', 'unit_test', 'internal_assessment')),
+    assessment_type VARCHAR(50) NOT NULL CHECK (assessment_type IN ('slip_test', 'assignment', 'unit_test', 'internal_assessment', 'mcq_test', 'quiz')),
     subject_code VARCHAR(50) NOT NULL DEFAULT 'BEA (MEE-105)',
     assessment_date DATE NOT NULL DEFAULT CURRENT_DATE,
     max_marks NUMERIC(6,2) NOT NULL CHECK (max_marks > 0),
@@ -105,7 +105,13 @@ CREATE TABLE IF NOT EXISTS public.questions (
     assessment_id UUID NOT NULL REFERENCES public.assessments(id) ON DELETE CASCADE,
     question_number VARCHAR(20) NOT NULL, -- e.g., '1', '2a', '2b'
     display_order INT NOT NULL DEFAULT 1,
+    question_type VARCHAR(20) NOT NULL DEFAULT 'descriptive' CHECK (question_type IN ('descriptive', 'mcq')),
     question_text TEXT NOT NULL,
+    option_a TEXT,
+    option_b TEXT,
+    option_c TEXT,
+    option_d TEXT,
+    correct_option VARCHAR(10), -- 'A', 'B', 'C', 'D'
     max_marks NUMERIC(6,2) NOT NULL CHECK (max_marks > 0),
     model_answer TEXT NOT NULL,
     acceptable_alternatives TEXT,

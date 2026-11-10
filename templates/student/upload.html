@@ -22,14 +22,16 @@
 </div>
 
 <!-- Upload Instructions Card -->
-<div class="card" style="background: rgba(15, 23, 42, 0.6); padding: 1rem 1.25rem;">
-  <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--secondary); margin-bottom: 0.35rem;">
-    📸 Handwritten Script & Circuit Diagram Upload Guidelines:
+<div class="card" style="background: rgba(15, 23, 42, 0.6); padding: 1.25rem; border-left: 4px solid var(--secondary);">
+  <h4 style="font-size: 1rem; font-weight: 700; color: var(--secondary); margin-bottom: 0.5rem;">
+    📸 Slip Test Handwritten Script Guidelines:
   </h4>
-  <ul style="padding-left: 1.25rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
-    <li>Ensure adequate lighting so circuit connections, pinouts, and mathematical subscripts are crisp.</li>
-    <li>Use the built-in <strong>Crop & Rotate</strong> tools to align pages right-side up.</li>
-    <li>All pages are compressed intelligently to ensure rapid AI evaluation while preserving 100% diagram legibility.</li>
+  <ul style="padding-left: 1.25rem; font-size: 0.88rem; color: #cbd5e1; line-height: 1.7; margin-bottom: 0;">
+    <li>Write your answers neatly on clean sheets of paper.</li>
+    <li>Draw clear labeled circuit diagrams with proper terminal current directions (IB, IC, IE) and polarities.</li>
+    <li>Use <strong>📸 Take Photo (Camera)</strong> or <strong>📁 Choose File</strong> to capture pages per question. Multiple pages per question are supported.</li>
+    <li>Use the <strong>Crop & Rotate</strong> tool to align and crop pages before saving. Images are compressed automatically.</li>
+    <li>Click <strong>SUBMIT ANSWERS</strong> once you finish all questions. Evaluation will run only after final submission.</li>
   </ul>
 </div>
 
@@ -72,13 +74,59 @@
         </div>
       {% endif %}
 
+      <!-- MCQ 4 Options Radio Selector -->
+      {% if q.question_type == 'mcq' or q.option_a %}
+        <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem;">
+          <strong style="color: #38bdf8; font-size: 0.95rem; display: block; margin-bottom: 0.85rem;">
+            🔘 Select Your Answer (Choose One Option):
+          </strong>
+          <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+            {% if q.option_a %}
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 0.75rem; background: #0b1120; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); transition: border-color 0.2s;">
+                <input type="radio" name="mcq_answer_{{ q_id }}" value="A" form="finalize-submission-form" style="transform: scale(1.2);">
+                <strong style="color: var(--secondary); min-width: 24px;">(A)</strong>
+                <span style="color: #e2e8f0; font-size: 0.92rem;">{{ q.option_a }}</span>
+              </label>
+            {% endif %}
+            {% if q.option_b %}
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 0.75rem; background: #0b1120; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); transition: border-color 0.2s;">
+                <input type="radio" name="mcq_answer_{{ q_id }}" value="B" form="finalize-submission-form" style="transform: scale(1.2);">
+                <strong style="color: var(--secondary); min-width: 24px;">(B)</strong>
+                <span style="color: #e2e8f0; font-size: 0.92rem;">{{ q.option_b }}</span>
+              </label>
+            {% endif %}
+            {% if q.option_c %}
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 0.75rem; background: #0b1120; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); transition: border-color 0.2s;">
+                <input type="radio" name="mcq_answer_{{ q_id }}" value="C" form="finalize-submission-form" style="transform: scale(1.2);">
+                <strong style="color: var(--secondary); min-width: 24px;">(C)</strong>
+                <span style="color: #e2e8f0; font-size: 0.92rem;">{{ q.option_c }}</span>
+              </label>
+            {% endif %}
+            {% if q.option_d %}
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 0.75rem; background: #0b1120; padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); transition: border-color 0.2s;">
+                <input type="radio" name="mcq_answer_{{ q_id }}" value="D" form="finalize-submission-form" style="transform: scale(1.2);">
+                <strong style="color: var(--secondary); min-width: 24px;">(D)</strong>
+                <span style="color: #e2e8f0; font-size: 0.92rem;">{{ q.option_d }}</span>
+              </label>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
       <!-- Upload Actions Bar -->
-      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
-        <!-- Mobile Camera Capture Trigger -->
-        <label class="btn btn-primary btn-sm" style="cursor: pointer;">
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem; align-items: center;">
+        {% if assessment.assessment_type == 'mcq_test' %}
+          <small style="color: var(--text-muted); font-size: 0.8rem; width: 100%; margin-bottom: 0.25rem;">
+            (Optional: Upload rough calculation or circuit verification script)
+          </small>
+        {% endif %}
+        <!-- In-App Camera Capture Trigger (opens live camera preview) -->
+        <button type="button" class="btn btn-primary btn-sm" onclick="openCamera('{{ q_id }}', '{{ q.question_number }}')">
           📸 Take Photo (Camera)
-          <input type="file" accept="image/*" capture="environment" style="display: none;" onchange="handleFileSelect(event, '{{ q_id }}', '{{ q.question_number }}')">
-        </label>
+        </button>
+
+        <!-- Fallback native camera/file picker (used if browser camera API is unavailable) -->
+        <input type="file" id="camera-fallback-{{ q_id }}" accept="image/*" capture="environment" style="display: none;" onchange="handleFileSelect(event, '{{ q_id }}', '{{ q.question_number }}')">
 
         <!-- Standard File / PDF Upload Trigger -->
         <label class="btn btn-secondary btn-sm" style="cursor: pointer;">
@@ -143,6 +191,43 @@
   </div>
 </div>
 
+<!-- Live Camera Capture Modal -->
+<div id="camera-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 1100; align-items: center; justify-content: center; padding: 1rem;">
+  <div class="card" style="max-width: 720px; width: 100%; max-height: 92vh; overflow-y: auto; background: var(--bg-card);">
+    <div class="card-header">
+      <h3 class="card-title">📸 Capture Answer Script Page</h3>
+      <button type="button" onclick="closeCamera()" class="btn btn-sm btn-secondary">&times;</button>
+    </div>
+
+    <div style="text-align: center; background: #000; padding: 0.5rem; border-radius: var(--radius-md); margin-bottom: 1rem; position: relative;">
+      <video id="camera-video" autoplay playsinline muted style="width: 100%; max-height: 55vh; display: block; border-radius: var(--radius-sm); background: #000;"></video>
+
+      <div id="camera-error" style="display: none; padding: 2rem 1rem; color: #f87171; font-size: 0.9rem; line-height: 1.6;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+        <div id="camera-error-msg">Camera unavailable.</div>
+        <div style="margin-top: 1rem; display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="retryCamera()">🔄 Try Again</button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="useFallbackPicker()">📁 Upload Instead</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="display: flex; gap: 0.5rem;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="flipCamera()">🔄 Flip Camera</button>
+      </div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">
+        Align the page inside the frame, then tap <strong>Capture</strong>.
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
+      <button type="button" class="btn btn-secondary" onclick="closeCamera()">Cancel</button>
+      <button type="button" class="btn btn-primary" id="capture-photo-btn" onclick="capturePhoto()">📸 Capture</button>
+    </div>
+  </div>
+</div>
+
 <!-- Final Submission Confirmation Card -->
 <div class="card" style="border: 2px solid var(--primary); text-align: center; padding: 2rem; margin-top: 2rem;">
   <h3 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem;">Ready to Finalize Your Submission?</h3>
@@ -150,7 +235,7 @@
     Once you click <strong>SUBMIT ANSWERS</strong>, your submission will be strictly locked in the Supabase database. You will immediately receive your official timestamped receipt with Asia/Kolkata date and time.
   </p>
 
-  <form action="{{ url_for('student.finalize_submission') }}" method="POST" onsubmit="return confirmFinalSubmission()">
+  <form id="finalize-submission-form" action="{{ url_for('student.finalize_submission') }}" method="POST" onsubmit="return confirmFinalSubmission()">
     <input type="hidden" name="submission_id" value="{{ submission.id }}">
     <button type="submit" class="btn btn-success btn-lg" style="box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.4);">
       🚀 SUBMIT ANSWERS (Lock & Get Receipt)

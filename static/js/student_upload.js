@@ -7,6 +7,7 @@ let rawImage = new Image();
 
 function handleFileSelect(event, qId, qNum) {
   const file = event.target.files[0];
+  event.target.value = ""; // allow re-selecting the same file
   if (!file) return;
 
   currentFile = file;
@@ -161,3 +162,147 @@ function appendPageThumbnail(qId, data) {
     badge.innerText = `${count} Page(s) Uploaded`;
   }
 }
+
+/* ============================================================
+   In-App Camera Capture (live preview -> crop editor -> upload)
+   ============================================================ */
+let cameraStream = null;
+let cameraFacing = "environment";
+let cameraQId = null;
+let cameraQNum = null;
+
+function cameraSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+async function openCamera(qId, qNum) {
+  cameraQId = qId;
+  cameraQNum = qNum;
+  showCameraModal();
+  await startCamera();
+}
+
+function showCameraModal() {
+  const modal = document.getElementById("camera-modal");
+  modal.style.display = "flex";
+  document.getElementById("camera-error").style.display = "none";
+  document.getElementById("camera-video").style.display = "block";
+}
+
+async function startCamera() {
+  stopCameraStream();
+
+  const video = document.getElementById("camera-video");
+  const errorBox = document.getElementById("camera-error");
+
+  if (!cameraSupported()) {
+    showCameraError("Your browser does not support in-app camera capture. Please upload a photo instead.");
+    return;
+  }
+
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: cameraFacing },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      },
+      audio: false
+    });
+
+    video.srcObject = cameraStream;
+    video.style.display = "block";
+    errorBox.style.display = "none";
+    await video.play();
+  } catch (err) {
+    const name = err && err.name ? err.name : "";
+    let msg = "Camera could not be started (" + (name || "unknown error") + ").";
+
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      msg = "Camera permission was denied. Allow camera access for this site in your browser settings, or upload a photo instead.";
+    } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      msg = "No camera was found on this device. Please upload a photo instead.";
+    } else if (name === "NotReadableError" || name === "TrackStartError") {
+      msg = "Your camera is being used by another app. Close it and try again, or upload a photo instead.";
+    } else if (!window.isSecureContext) {
+      msg = "Camera access requires a secure (HTTPS or localhost) connection. Please upload a photo instead.";
+    }
+
+    showCameraError(msg);
+  }
+}
+
+function showCameraError(message) {
+  stopCameraStream();
+  const video = document.getElementById("camera-video");
+  video.style.display = "none";
+  video.srcObject = null;
+
+  const errorBox = document.getElementById("camera-error");
+  document.getElementById("camera-error-msg").innerText = message;
+  errorBox.style.display = "block";
+}
+
+function stopCameraStream() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+  }
+  const video = document.getElementById("camera-video");
+  if (video) video.srcObject = null;
+}
+
+function retryCamera() {
+  startCamera();
+}
+
+function flipCamera() {
+  cameraFacing = cameraFacing === "environment" ? "user" : "environment";
+  startCamera();
+}
+
+function useFallbackPicker() {
+  closeCamera();
+  const input = document.getElementById(`camera-fallback-${cameraQId}`);
+  if (input) input.click();
+}
+
+function closeCamera() {
+  stopCameraStream();
+  document.getElementById("camera-modal").style.display = "none";
+}
+
+function capturePhoto() {
+  const video = document.getElementById("camera-video");
+
+  if (!cameraStream || !video.videoWidth || !video.videoHeight) {
+    showToast("Camera is still starting up — please wait a moment and try again.", "info");
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+  const approxBytes = Math.round(((dataUrl.length - dataUrl.indexOf(",") - 1) * 3) / 4);
+
+  // Hand the captured frame to the existing crop / rotate editor
+  currentQuestionId = cameraQId;
+  currentQuestionNum = cameraQNum;
+  currentRotation = 0;
+
+  closeCamera();
+
+  rawImage = new Image();
+  rawImage.onload = function () {
+    openEditorModal(approxBytes);
+    drawCanvas();
+  };
+  rawImage.src = dataUrl;
+}
+
+// Release the camera when leaving the page
+window.addEventListener("beforeunload", stopCameraStream);
+

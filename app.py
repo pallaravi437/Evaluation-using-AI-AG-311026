@@ -45,7 +45,7 @@ def create_app() -> Flask:
             return redirect(url_for("teacher.dashboard"))
         elif session.get("role") == "student":
             return redirect(url_for("student.dashboard"))
-        return redirect(url_for("student.login"))
+        return render_template("portal_home.html")
 
     @app.route("/health")
     def health():
