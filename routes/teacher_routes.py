@@ -23,7 +23,10 @@ teacher_bp = Blueprint("teacher", __name__, url_prefix="/teacher")
 def teacher_required(f):
     """Enforces active teacher session."""
     def wrapper(*args, **kwargs):
-        if session.get("role") not in ("lecturer", "admin") or not session.get("teacher_id"):
+        if session.get("role") == "admin":
+            flash("Administrator role is dedicated exclusively to Lecturer Approval Authority.", "info")
+            return redirect(url_for("admin.manage_lecturers"))
+        if session.get("role") != "lecturer" or not session.get("teacher_id"):
             flash("Please sign in with lecturer credentials.", "warning")
             return redirect(url_for("teacher.login"))
         return f(*args, **kwargs)
@@ -40,12 +43,15 @@ def login():
         success, teacher_data, message = AuthService.authenticate_teacher(email, password, client_ip)
         if success and teacher_data:
             session.clear()
-            session["role"] = teacher_data.get("role", "lecturer")
+            role = teacher_data.get("role", "lecturer")
+            session["role"] = role
             session["teacher_id"] = teacher_data["id"]
             session["teacher_name"] = teacher_data["full_name"]
             session["teacher_email"] = teacher_data["email"]
             session.permanent = True
             flash(f"Welcome back, {teacher_data['full_name']}!", "success")
+            if role == "admin":
+                return redirect(url_for("admin.manage_lecturers"))
             return redirect(url_for("teacher.dashboard"))
         else:
             flash(message, "danger")

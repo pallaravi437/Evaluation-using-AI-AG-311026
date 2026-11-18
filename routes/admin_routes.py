@@ -19,6 +19,12 @@ def admin_required(f):
     wrapper.__name__ = f.__name__
     return wrapper
 
+@admin_bp.route("/")
+@admin_required
+def admin_root():
+    """Default landing for admin section - strictly Lecturer Approval Authority."""
+    return redirect(url_for("admin.manage_lecturers"))
+
 def admin_or_lecturer_required(f):
     """Enforces administrator or lecturer privileges."""
     def wrapper(*args, **kwargs):

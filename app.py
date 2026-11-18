@@ -41,7 +41,9 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         """Smart root redirect based on active session."""
-        if session.get("role") in ("lecturer", "admin"):
+        if session.get("role") == "admin":
+            return redirect(url_for("admin.manage_lecturers"))
+        elif session.get("role") == "lecturer":
             return redirect(url_for("teacher.dashboard"))
         elif session.get("role") == "student":
             return redirect(url_for("student.dashboard"))

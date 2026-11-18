@@ -37,15 +37,20 @@
             </div>
           </li>
           <li><a href="{{ url_for('student.logout') }}" class="btn btn-secondary btn-sm">Logout</a></li>
-        {% elif session.get('role') in ['lecturer', 'admin'] %}
+        {% elif session.get('role') == 'admin' %}
+          <li><a href="{{ url_for('admin.manage_lecturers') }}" class="nav-link" style="color: #fbbf24; font-weight: 600;">Lecturer Approvals 👥</a></li>
+          <li>
+            <div class="user-badge" style="border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.1);">
+              <span style="color: #fbbf24; font-weight: 600;">👑 Administrator (Approval Authority)</span>
+            </div>
+          </li>
+          <li><a href="{{ url_for('teacher.logout') }}" class="btn btn-secondary btn-sm">Logout</a></li>
+        {% elif session.get('role') == 'lecturer' %}
           <li><a href="{{ url_for('teacher.dashboard') }}" class="nav-link">Dashboard</a></li>
           <li><a href="{{ url_for('teacher.manage_assessments') }}" class="nav-link">Assessments</a></li>
           <li><a href="{{ url_for('teacher.manage_materials') }}" class="nav-link">Syllabus & Materials 📚</a></li>
           <li><a href="{{ url_for('admin.manage_servers') }}" class="nav-link">Storage Matrix 🗄️</a></li>
           <li><a href="{{ url_for('teacher.manage_students') }}" class="nav-link">Students</a></li>
-          {% if session.get('role') == 'admin' %}
-            <li><a href="{{ url_for('admin.manage_lecturers') }}" class="nav-link" style="color: #fbbf24; font-weight: 600;">Lecturers 👥</a></li>
-          {% endif %}
           <li><a href="{{ url_for('teacher.my_settings') }}" class="nav-link">My Settings 🔧</a></li>
           <li><a href="{{ url_for('admin.settings') }}" class="nav-link">System ⚙️</a></li>
           <li>
