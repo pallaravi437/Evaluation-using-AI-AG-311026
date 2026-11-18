@@ -191,3 +191,74 @@ def test_admin_routes_access(client):
     admin_page = client.get("/admin/lecturers")
     assert admin_page.status_code == 200
     assert b"Lecturer Management" in admin_page.data
+
+
+def test_student_registration_with_available_lecturers(client):
+    """Test student registration flow: student selects available lecturer, awaits approval, lecturer approves, and student accesses assessments."""
+    from services.lecturer_service import LecturerService
+    from services.student_service import StudentService
+
+    # 1. Register and approve lecturer
+    ok, lec_data, _ = LecturerService.register_lecturer(
+        full_name="Prof. Anand Rao",
+        username="anand_ece",
+        email="anand@college.edu",
+        password="secretpassword",
+        subject="Embedded Systems"
+    )
+    assert ok is True
+    lec_id = lec_data["id"]
+    LecturerService.approve_lecturer(lec_id)
+
+    # 2. Check student signup page contains available lecturers
+    signup_page = client.get("/student/signup")
+    assert signup_page.status_code == 200
+    assert b"Prof. Anand Rao" in signup_page.data
+    assert b"Embedded Systems" in signup_page.data
+
+    # 3. Student registers choosing Prof. Anand Rao
+    reg_resp = client.post("/student/signup", data={
+        "name": "MOHAMMED IMRAN",
+        "pin": "26054-ES-777",
+        "lecturer_id": lec_id,
+        "branch": "ECE",
+        "semester": "Semester 3",
+        "section": "A"
+    }, follow_redirects=True)
+    assert reg_resp.status_code == 200
+
+    # 4. Student cannot log in before approval
+    unapproved_login = client.post("/student/login", data={
+        "name": "MOHAMMED IMRAN",
+        "pin": "26054-ES-777"
+    }, follow_redirects=True)
+    assert b"pending approval" in unapproved_login.data
+
+    # 5. Lecturer logs in and sees pending student
+    with client.session_transaction() as sess:
+        sess["role"] = "lecturer"
+        sess["teacher_id"] = lec_id
+        sess["teacher_name"] = "Prof. Anand Rao"
+
+    students_page = client.get("/teacher/students")
+    assert students_page.status_code == 200
+    assert b"26054-ES-777" in students_page.data
+    assert b"MOHAMMED IMRAN" in students_page.data
+
+    # 6. Lecturer approves student
+    pending = StudentService.get_pending_students_for_lecturer(lec_id)
+    assert len(pending) >= 1
+    reg_id = next(p["id"] for p in pending if p["pin"] == "26054-ES-777")
+
+    approve_resp = client.post(f"/teacher/students/approve-registration/{reg_id}", follow_redirects=True)
+    assert approve_resp.status_code == 200
+    assert b"Approved MOHAMMED IMRAN" in approve_resp.data
+
+    # 7. Student can now log in
+    client.get("/student/logout")
+    approved_login = client.post("/student/login", data={
+        "name": "MOHAMMED IMRAN",
+        "pin": "26054-ES-777"
+    }, follow_redirects=True)
+    assert approved_login.status_code == 200
+    assert b"Welcome, MOHAMMED IMRAN" in approved_login.data or b"Available Assessments" in approved_login.data

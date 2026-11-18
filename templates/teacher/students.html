@@ -21,6 +21,80 @@
   </div>
 </div>
 
+<!-- Pending Student Registrations Waiting for this Lecturer's Approval -->
+<div class="card" style="margin-bottom: 2rem; border-left: 4px solid #f59e0b; background: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <span style="font-size: 1.25rem;">⏳</span>
+      <h3 style="font-size: 1.15rem; font-weight: 700; margin: 0; color: #f8fafc;">
+        Pending Student Registrations (Enrollment Approval Queue)
+      </h3>
+      <span class="badge badge-warning" style="font-size: 0.8rem; padding: 0.35rem 0.65rem;">
+        {{ pending_registrations|length if pending_registrations else 0 }} Waiting for Your Approval
+      </span>
+    </div>
+    <span style="font-size: 0.8rem; color: var(--text-muted);">
+      Students who registered selecting you as their lecturer
+    </span>
+  </div>
+
+  {% if pending_registrations %}
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+      Review incoming student enrollment requests. When approved, the student is instantly added to your active roster and granted access to your assessments.
+    </p>
+
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width: 45px;">S.No</th>
+            <th>Student Name</th>
+            <th>Diploma PIN</th>
+            <th>Branch & Section</th>
+            <th>Semester</th>
+            <th>Contact</th>
+            <th>Requested At</th>
+            <th style="text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for st in pending_registrations %}
+            <tr>
+              <td style="color: var(--text-muted); font-weight: 600;">{{ loop.index }}</td>
+              <td><strong style="color: var(--text);">{{ st.full_name }}</strong></td>
+              <td><code style="color: #38bdf8; font-weight: 700;">{{ st.pin }}</code></td>
+              <td><span class="badge badge-info">{{ st.branch }} - {{ st.section }}</span></td>
+              <td>{{ st.semester }}</td>
+              <td style="font-size: 0.82rem; color: var(--text-muted);">
+                {% if st.contact_phone %}{{ st.contact_phone }}{% else %}—{% endif %}
+              </td>
+              <td style="font-size: 0.8rem; color: var(--text-muted);">
+                {{ st.registered_at | to_kolkata_time }}
+              </td>
+              <td style="text-align: right; white-space: nowrap;">
+                <form action="{{ url_for('teacher.approve_student_registration', reg_id=st.id) }}" method="POST" style="display: inline-block;">
+                  <button type="submit" class="btn btn-success btn-sm" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600;">
+                    ✓ Approve & Add to Roster
+                  </button>
+                </form>
+                <form action="{{ url_for('teacher.reject_student_registration', reg_id=st.id) }}" method="POST" style="display: inline-block; margin-left: 0.35rem;" onsubmit="return confirm('Are you sure you want to reject this student registration?');">
+                  <button type="submit" class="btn btn-danger btn-sm" style="padding: 0.35rem 0.65rem; font-size: 0.8rem;">
+                    ✕ Reject
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div style="text-align: center; padding: 1.25rem; color: var(--text-muted); font-size: 0.85rem;">
+      <span>🎉 No pending student requests waiting for your approval. When new students register selecting you, they will appear here.</span>
+    </div>
+  {% endif %}
+</div>
+
 <!-- Upload Roster Card -->
 <div class="card" style="border-left: 4px solid var(--secondary);">
   <h3 style="font-size: 1.15rem; font-weight: 600; margin-bottom: 0.75rem;">

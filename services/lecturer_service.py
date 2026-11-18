@@ -18,6 +18,7 @@ os.makedirs(LOCAL_STORE_DIR, exist_ok=True)
 os.makedirs(TENANTS_DIR, exist_ok=True)
 
 _lecturers_cache: Optional[List[Dict[str, Any]]] = None
+_last_mtime: float = 0.0
 
 class LecturerService:
     """
@@ -31,21 +32,24 @@ class LecturerService:
 
     @classmethod
     def _load_lecturers(cls) -> List[Dict[str, Any]]:
-        global _lecturers_cache
-        if _lecturers_cache is not None:
-            return _lecturers_cache
-
+        global _lecturers_cache, _last_mtime
         if not os.path.exists(LECTURERS_FILE):
             _lecturers_cache = []
             cls._save_lecturers(_lecturers_cache)
             return _lecturers_cache
 
         try:
+            mtime = os.path.getmtime(LECTURERS_FILE)
+            if _lecturers_cache is not None and mtime <= _last_mtime:
+                return _lecturers_cache
+
             with open(LECTURERS_FILE, "r", encoding="utf-8") as f:
                 _lecturers_cache = json.load(f)
+            _last_mtime = mtime
         except Exception as e:
             logger.error(f"Error loading lecturers file: {e}")
-            _lecturers_cache = []
+            if _lecturers_cache is None:
+                _lecturers_cache = []
         return _lecturers_cache
 
     @classmethod
@@ -262,6 +266,34 @@ class LecturerService:
             copy_l.pop("password_hash", None)
             safe_list.append(copy_l)
         return safe_list
+
+    @classmethod
+    def get_available_lecturers(cls) -> List[Dict[str, Any]]:
+        """Returns list of approved and active lecturers available for student selection."""
+        lecturers = cls._load_lecturers()
+        available = [
+            {
+                "id": l["id"],
+                "full_name": l["full_name"],
+                "subject": l.get("subject", "General"),
+                "specialization": l.get("specialization", ""),
+                "email": l.get("email", ""),
+                "username": l.get("username", "")
+            }
+            for l in lecturers
+            if l.get("is_approved") and l.get("is_active", True)
+        ]
+        DEFAULT_TEACHER_ID = "11111111-1111-1111-1111-111111111111"
+        if not any(l["id"] in (DEFAULT_TEACHER_ID, "teacher") for l in available):
+            available.insert(0, {
+                "id": DEFAULT_TEACHER_ID,
+                "full_name": "Prof. BEA Department Faculty",
+                "subject": "Basic Electronic Engineering (BEA)",
+                "specialization": "Electronics & Communication Engineering",
+                "email": "teacher@bea.edu",
+                "username": "teacher"
+            })
+        return available
 
     @classmethod
     def get_lecturer_by_id(cls, lecturer_id: str) -> Optional[Dict[str, Any]]:

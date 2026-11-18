@@ -720,12 +720,40 @@ def manage_students():
             except Exception as e:
                 flash(f"Error parsing student file: {str(e)}", "danger")
 
+    pending_registrations = StudentService.get_pending_students_for_lecturer(teacher_id)
+
     return render_template(
         "teacher/students.html",
         students=students,
+        pending_registrations=pending_registrations,
         preview_data=preview_data,
         invalid_rows=invalid_rows
     )
+
+@teacher_bp.route("/students/approve-registration/<reg_id>", methods=["POST"])
+@teacher_required
+def approve_student_registration(reg_id):
+    """Lecturer approves a student registration and adds them to their student roster."""
+    teacher_id = session.get("teacher_id")
+    success, msg = StudentService.approve_student_registration(reg_id, teacher_id)
+    if success:
+        flash(msg, "success")
+    else:
+        flash(msg, "danger")
+    return redirect(url_for("teacher.manage_students"))
+
+@teacher_bp.route("/students/reject-registration/<reg_id>", methods=["POST"])
+@teacher_required
+def reject_student_registration(reg_id):
+    """Lecturer rejects a student registration."""
+    teacher_id = session.get("teacher_id")
+    reason = request.form.get("reason", "").strip()
+    success, msg = StudentService.reject_student_registration(reg_id, teacher_id, reason)
+    if success:
+        flash(msg, "info")
+    else:
+        flash(msg, "danger")
+    return redirect(url_for("teacher.manage_students"))
 
 @teacher_bp.route("/students/confirm-import", methods=["POST"])
 @teacher_required

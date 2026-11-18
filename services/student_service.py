@@ -1,10 +1,19 @@
 import os
 import io
 import csv
+import json
+import uuid
 import logging
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple, Optional
 from config import Config
 from database.db_manager import db_manager
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOCAL_STORE_DIR = os.path.join(BASE_DIR, "database", "local_store")
+STUDENT_REGISTRATIONS_FILE = os.path.join(LOCAL_STORE_DIR, "student_registrations.json")
+
+os.makedirs(LOCAL_STORE_DIR, exist_ok=True)
 
 try:
     import openpyxl
@@ -653,3 +662,237 @@ class StudentService:
         ]
         deleted_count = initial_count - len(_local_students)
         return True, deleted_count, f"Successfully deleted {deleted_count} student(s) (Local mode)."
+
+    # -------------------------------------------------------------------------
+    # STUDENT SELF-REGISTRATION & LECTURER APPROVAL WORKFLOW
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def _load_registrations(cls) -> List[Dict[str, Any]]:
+        """Loads student registration requests from JSON file."""
+        if not os.path.exists(STUDENT_REGISTRATIONS_FILE):
+            return []
+        try:
+            with open(STUDENT_REGISTRATIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading student registrations: {e}")
+            return []
+
+    @classmethod
+    def _save_registrations(cls, registrations: List[Dict[str, Any]]) -> bool:
+        """Saves student registration requests to JSON file."""
+        try:
+            with open(STUDENT_REGISTRATIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(registrations, f, indent=2, default=str)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving student registrations: {e}")
+            return False
+
+    @classmethod
+    def register_student(
+        cls,
+        full_name: str,
+        pin: str,
+        lecturer_id: str,
+        branch: str = "ECE",
+        semester: str = "Semester 1",
+        section: str = "A",
+        contact_phone: str = "",
+        contact_email: str = ""
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        Registers a student for enrollment under a chosen lecturer.
+        Status is initially 'pending' until the chosen lecturer grants approval.
+        """
+        clean_name = (full_name or "").strip()
+        clean_pin = (pin or "").strip().upper()
+        clean_lec_id = (lecturer_id or "").strip()
+
+        if not clean_name or not clean_pin:
+            return False, None, "Student Full Name and unique PIN are required."
+
+        if not clean_lec_id:
+            return False, None, "Please select an available lecturer from the options."
+
+        # Fetch lecturer details
+        from services.lecturer_service import LecturerService
+        lec_info = LecturerService.get_lecturer_by_id(clean_lec_id)
+        if not lec_info and clean_lec_id in ("teacher", "default-teacher", "11111111-1111-1111-1111-111111111111"):
+            lec_info = {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "full_name": "Prof. BEA Department Faculty",
+                "subject": "Basic Electronic Engineering (BEA)",
+                "specialization": "Electronics & Communication Engineering"
+            }
+
+        if not lec_info:
+            return False, None, "Selected lecturer not found. Please choose a valid lecturer."
+
+        registrations = cls._load_registrations()
+
+        # Check for existing registrations for this PIN
+        for r in registrations:
+            if r.get("pin", "").upper() == clean_pin:
+                if r.get("status") == "approved":
+                    return False, None, f"Student PIN '{clean_pin}' is already enrolled with Lecturer {r.get('lecturer_name')}."
+                elif r.get("status") == "pending" and r.get("lecturer_id") == clean_lec_id:
+                    return False, None, f"A registration for PIN '{clean_pin}' is already pending approval with Lecturer {lec_info.get('full_name')}."
+
+        reg_id = f"st-reg-{uuid.uuid4()}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        record = {
+            "id": reg_id,
+            "pin": clean_pin,
+            "pin_normalized": clean_pin,
+            "full_name": clean_name,
+            "branch": branch.strip() or "ECE",
+            "semester": semester.strip() or "Semester 1",
+            "section": section.strip() or "A",
+            "contact_phone": contact_phone.strip(),
+            "contact_email": contact_email.strip(),
+            "lecturer_id": clean_lec_id,
+            "lecturer_name": lec_info.get("full_name", "Faculty"),
+            "lecturer_subject": lec_info.get("subject", "General"),
+            "status": "pending",
+            "is_approved": False,
+            "is_active": False,
+            "registered_at": now_iso,
+            "approved_at": None,
+            "rejection_reason": None
+        }
+
+        # Remove any old rejected registration for this PIN
+        registrations = [r for r in registrations if not (r.get("pin", "").upper() == clean_pin and r.get("status") == "rejected")]
+        registrations.append(record)
+        cls._save_registrations(registrations)
+
+        logger.info(f"New student registration: {clean_name} ({clean_pin}) assigned to lecturer {lec_info.get('full_name')}")
+        return True, record, f"Registration submitted! Waiting for approval from Lecturer '{lec_info.get('full_name')}'. Once approved, you will be added to their student list and can access assessments."
+
+    DEFAULT_TEACHER_IDS = {"teacher", "default-teacher", "11111111-1111-1111-1111-111111111111"}
+
+    @classmethod
+    def get_pending_students_for_lecturer(cls, teacher_id: str) -> List[Dict[str, Any]]:
+        """Returns all students waiting for this lecturer's approval."""
+        if not teacher_id:
+            return []
+        registrations = cls._load_registrations()
+        return [
+            r for r in registrations
+            if r.get("status") == "pending" and (
+                r.get("lecturer_id") == teacher_id or 
+                (teacher_id in cls.DEFAULT_TEACHER_IDS and r.get("lecturer_id") in cls.DEFAULT_TEACHER_IDS)
+            )
+        ]
+
+    @classmethod
+    def get_registration_by_pin(cls, pin: str) -> Optional[Dict[str, Any]]:
+        """Finds registration record by PIN."""
+        clean_pin = (pin or "").strip().upper()
+        if not clean_pin:
+            return None
+        registrations = cls._load_registrations()
+        for r in reversed(registrations):
+            if r.get("pin", "").upper() == clean_pin:
+                return r
+        return None
+
+    @classmethod
+    def approve_student_registration(cls, registration_id: str, teacher_id: str) -> Tuple[bool, str]:
+        """
+        Lecturer approves student. Student is immediately added to the lecturer's student roster.
+        """
+        registrations = cls._load_registrations()
+        match = None
+        for r in registrations:
+            if r.get("id") == registration_id:
+                match = r
+                break
+
+        if not match:
+            return False, "Registration request not found."
+
+        # Verify authority
+        if teacher_id and teacher_id != match.get("lecturer_id") and not (teacher_id in cls.DEFAULT_TEACHER_IDS and match.get("lecturer_id") in cls.DEFAULT_TEACHER_IDS) and teacher_id not in ("admin", "admin-00000000-0000-0000-0000-000000000000"):
+            return False, "You do not have authority to approve students for another lecturer."
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        match["status"] = "approved"
+        match["is_approved"] = True
+        match["is_active"] = True
+        match["approved_at"] = now_iso
+        cls._save_registrations(registrations)
+
+        # Build student roster entry
+        student_entry = {
+            "id": match["id"],
+            "pin": match["pin"],
+            "full_name": match["full_name"],
+            "academic_year": "2026-2027",
+            "semester": match.get("semester", "Semester 1"),
+            "branch": match.get("branch", "ECE"),
+            "section": match.get("section", "A"),
+            "contact_phone": match.get("contact_phone", ""),
+            "contact_email": match.get("contact_email", ""),
+            "is_active": True,
+            "enrolled_at": now_iso
+        }
+
+        # Add to lecturer tenant students roster
+        target_tid = match.get("lecturer_id")
+        if target_tid and target_tid.startswith("lec-"):
+            from services.lecturer_service import LecturerService
+            tenant_students = LecturerService.load_tenant_data(target_tid, "students.json") or []
+            tenant_students = [s for s in tenant_students if s.get("pin", "").upper() != match["pin"]]
+            tenant_students.append(student_entry)
+            LecturerService.save_tenant_data(target_tid, "students.json", tenant_students)
+        else:
+            # Add to local students if default lecturer
+            global _local_students
+            _local_students = [s for s in _local_students if s.get("pin", "").upper() != match["pin"]]
+            _local_students.append(student_entry)
+
+        # Also sync to Supabase if connected
+        supabase = db_manager.get_supabase(use_service_role=True)
+        if supabase:
+            try:
+                supabase.table("students").upsert({
+                    "pin": match["pin"],
+                    "full_name": match["full_name"],
+                    "branch": match.get("branch", "ECE"),
+                    "semester": match.get("semester", "Semester 1"),
+                    "section": match.get("section", "A"),
+                    "contact_phone": match.get("contact_phone", ""),
+                    "contact_email": match.get("contact_email", ""),
+                    "is_active": True
+                }, on_conflict="pin").execute()
+            except Exception as e:
+                logger.debug(f"Supabase student sync on approval: {e}")
+
+        logger.info(f"Student {match['full_name']} ({match['pin']}) approved by lecturer {teacher_id}.")
+        return True, f"Approved {match['full_name']} ({match['pin']})! Student has been added to your roster and can now access your assessments."
+
+    @classmethod
+    def reject_student_registration(cls, registration_id: str, teacher_id: str, reason: str = "") -> Tuple[bool, str]:
+        """Lecturer rejects student registration."""
+        registrations = cls._load_registrations()
+        match = None
+        for r in registrations:
+            if r.get("id") == registration_id:
+                match = r
+                break
+
+        if not match:
+            return False, "Registration request not found."
+
+        match["status"] = "rejected"
+        match["is_approved"] = False
+        match["is_active"] = False
+        match["rejection_reason"] = reason.strip() or "Registration rejected by lecturer."
+        cls._save_registrations(registrations)
+
+        logger.info(f"Student registration {registration_id} rejected by lecturer {teacher_id}.")
+        return True, f"Registration for {match['full_name']} ({match['pin']}) has been rejected."

@@ -76,6 +76,36 @@ class AuthService:
             minutes = (remaining_secs // 60) + 1
             return False, None, f"Too many failed attempts. Account temporarily locked. Try again in {minutes} minutes."
 
+        # 1. Check Student Self-Registration and Lecturer Approval Status
+        from services.student_service import StudentService
+        reg = StudentService.get_registration_by_pin(clean_pin)
+        if reg:
+            if reg.get("status") == "pending" or not reg.get("is_approved"):
+                return False, None, f"Your registration is pending approval by Lecturer {reg.get('lecturer_name', 'your faculty')}. Once your lecturer approves, you will be able to access assessments."
+            elif reg.get("status") == "rejected":
+                reason = f": {reg.get('rejection_reason')}" if reg.get('rejection_reason') else "."
+                return False, None, f"Your registration was rejected by Lecturer {reg.get('lecturer_name', 'your faculty')}{reason} Please contact your lecturer or submit a new registration."
+            elif reg.get("status") == "approved":
+                db_name = reg.get("full_name", "").strip().upper()
+                input_name = clean_name.upper()
+                if input_name != db_name and input_name not in db_name and db_name not in input_name:
+                    cls._record_failed_attempt(rate_limit_key)
+                    return False, None, "The entered Name does not match the registered PIN."
+
+                cls._clear_failed_attempts(rate_limit_key)
+                student_data = {
+                    "id": reg["id"],
+                    "pin": reg["pin"],
+                    "full_name": reg["full_name"],
+                    "branch": reg.get("branch", "ECE"),
+                    "semester": reg.get("semester", ""),
+                    "section": reg.get("section", ""),
+                    "lecturer_id": reg.get("lecturer_id"),
+                    "lecturer_name": reg.get("lecturer_name"),
+                    "role": "student"
+                }
+                return True, student_data, "Login successful."
+
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:
             try:

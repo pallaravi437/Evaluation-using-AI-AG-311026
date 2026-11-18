@@ -29,6 +29,41 @@ def student_required(f):
     wrapper.__name__ = f.__name__
     return wrapper
 
+@student_bp.route("/signup", methods=["GET", "POST"])
+def signup():
+    """Student registration: allows choosing from available approved lecturers."""
+    from services.lecturer_service import LecturerService
+    from services.student_service import StudentService
+    available_lecturers = LecturerService.get_available_lecturers()
+
+    if request.method == "POST":
+        name = (request.form.get("name") or request.form.get("full_name") or "").strip()
+        pin = (request.form.get("pin") or "").strip().upper()
+        lecturer_id = (request.form.get("lecturer_id") or "").strip()
+        branch = (request.form.get("branch") or "ECE").strip()
+        semester = (request.form.get("semester") or "Semester 1").strip()
+        section = (request.form.get("section") or "A").strip()
+        phone = (request.form.get("contact_phone") or request.form.get("phone") or "").strip()
+        email = (request.form.get("contact_email") or request.form.get("email") or "").strip()
+
+        success, reg_data, msg = StudentService.register_student(
+            full_name=name,
+            pin=pin,
+            lecturer_id=lecturer_id,
+            branch=branch,
+            semester=semester,
+            section=section,
+            contact_phone=phone,
+            contact_email=email
+        )
+        if success:
+            flash(msg, "success")
+            return redirect(url_for("student.login"))
+        else:
+            flash(msg, "danger")
+
+    return render_template("student/signup.html", available_lecturers=available_lecturers)
+
 @student_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -44,6 +79,8 @@ def login():
             session["student_name"] = student_data["full_name"]
             session["student_pin"] = student_data["pin"]
             session["student_branch"] = student_data.get("branch", "ECE")
+            session["student_lecturer_id"] = student_data.get("lecturer_id")
+            session["student_lecturer_name"] = student_data.get("lecturer_name")
             session.permanent = True
             flash(f"Welcome, {student_data['full_name']}!", "success")
             return redirect(url_for("student.dashboard"))
@@ -62,8 +99,15 @@ def logout():
 @student_bp.route("/dashboard")
 @student_required
 def dashboard():
-    assessments = AssessmentService.get_all_assessments()
     student_id = session.get("student_id")
+    lecturer_id = session.get("student_lecturer_id")
+
+    if lecturer_id and lecturer_id.startswith("lec-"):
+        assessments = AssessmentService.get_all_assessments(teacher_id=lecturer_id)
+        if not assessments:
+            assessments = AssessmentService.get_all_assessments()
+    else:
+        assessments = AssessmentService.get_all_assessments()
     
     # Attach submission status for this student
     for asm in assessments:
