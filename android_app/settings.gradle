@@ -1,2 +1,3 @@
 rootProject.name = "OnlineAIEvaluator"
 include ':app'
+
