@@ -1,16 +1,18 @@
-const CACHE_NAME = 'ai-evaluator-v1';
+const CACHE_NAME = 'ai-evaluator-v2';
 const ASSETS_TO_CACHE = [
-  '/',
   '/static/css/main.css',
-  '/static/icons/icon-192.png',
-  '/static/icons/icon-512.png',
+  '/static/js/main.js',
   '/static/manifest.json'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return Promise.all(
+        ASSETS_TO_CACHE.map((url) =>
+          cache.add(url).catch(() => null)
+        )
+      );
     })
   );
   self.skipWaiting();
@@ -32,10 +34,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network first with cache fallback
+  if (event.request.method !== 'GET') return;
   event.respondWith(
-    fetch(event.request)
-      .catch(() => caches.match(event.request))
+    fetch(event.request).catch(() => caches.match(event.request))
   );
 });
-

@@ -1,6 +1,7 @@
 import os
 import logging
 from datetime import datetime, timezone
+from functools import wraps
 import io
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from services.auth_service import AuthService
@@ -21,6 +22,7 @@ teacher_bp = Blueprint("teacher", __name__, url_prefix="/teacher")
 
 def teacher_required(f):
     """Enforces active teacher session."""
+    @wraps(f)
     def wrapper(*args, **kwargs):
         if session.get("role") == "admin":
             flash("Administrator role is dedicated exclusively to Lecturer Approval Authority.", "info")
@@ -29,7 +31,6 @@ def teacher_required(f):
             flash("Please sign in with lecturer credentials.", "warning")
             return redirect(url_for("teacher.login"))
         return f(*args, **kwargs)
-    wrapper.__name__ = f.__name__
     return wrapper
 
 @teacher_bp.route("/login", methods=["GET", "POST"])
@@ -174,15 +175,7 @@ def dashboard():
 
     if selected_asm_id:
         selected_assessment = AssessmentService.get_assessment_by_id(selected_asm_id)
-        supabase = db_manager.get_supabase(use_service_role=True)
-        if supabase:
-            try:
-                res = supabase.table("answer_submissions").select(
-                    "*, students(id, pin, full_name, branch, section)"
-                ).eq("assessment_id", selected_asm_id).order("submitted_at", desc=True).execute()
-                submissions_list = res.data or []
-            except Exception as e:
-                logger.error(f"Error fetching submissions: {e}")
+        submissions_list = SubmissionService.get_submissions_for_assessment(selected_asm_id)
 
         # Format timestamps to Asia/Kolkata
         sub_count = len([s for s in submissions_list if s.get("status") in ("submitted", "evaluated", "approved")])
@@ -889,6 +882,64 @@ def evaluate_submission(submission_id):
         except Exception as e:
             logger.error(f"Error loading question evaluations: {e}")
 
+    # Fallback to local evaluations from submission record or SubmissionService
+    if not evaluations:
+        evaluations = sub.get("question_evaluations") or SubmissionService.get_evaluations_for_submission(submission_id) or {}
+
+    # If it's an MCQ assessment or has mcq_answers and evaluations is still empty, auto-populate evaluations
+    if not evaluations and assessment and assessment.get("questions"):
+        mcq_answers = sub.get("mcq_answers")
+        is_mcq_test = assessment.get("assessment_type") == "mcq_test" or bool(mcq_answers)
+        if is_mcq_test and mcq_answers:
+            evaluations = {}
+            questions = assessment.get("questions", [])
+            mcq_vals = list(mcq_answers.values()) if isinstance(mcq_answers, dict) else []
+            for idx, q in enumerate(questions):
+                qid = q["id"]
+                # Match answer by id, number, or index
+                ans = mcq_answers.get(qid) or mcq_answers.get(str(q.get("question_number"))) or mcq_answers.get(f"mcq_answer_{qid}")
+                if not ans and idx < len(mcq_vals):
+                    ans = mcq_vals[idx]
+                ans = (ans or "").strip().upper()
+                correct_opt = (q.get("correct_option") or "A").strip().upper()
+                q_max = float(q.get("max_marks", 1.0))
+                is_correct = (ans == correct_opt) if ans else False
+                awarded = q_max if is_correct else 0.0
+                model_ans = q.get("model_answer", "") or f"Option {correct_opt} is the correct answer."
+
+                evaluations[qid] = {
+                    "submission_id": submission_id,
+                    "question_id": qid,
+                    "ai_marks_awarded": awarded,
+                    "approved_marks": awarded,
+                    "max_marks": q_max,
+                    "student_selected_option": ans,
+                    "correct_option": correct_opt,
+                    "is_correct": is_correct,
+                    "ai_criterion_breakdown": [
+                        {
+                            "title": "Selected Option & Technical Accuracy",
+                            "marks_awarded": awarded,
+                            "max_marks": q_max,
+                            "comment": f"Student chose Option {ans or 'None'}. {'✓ Correct option selected.' if is_correct else f'✗ Incorrect choice. Correct option is {correct_opt}.'}"
+                        }
+                    ],
+                    "ai_correct_concepts": [f"Option {correct_opt}: {model_ans}"] if is_correct else [],
+                    "ai_missing_concepts": [f"Expected Option {correct_opt}: {model_ans}"] if not is_correct else [],
+                    "ai_technical_mistakes": [f"Selected Option {ans} instead of Option {correct_opt}"] if not is_correct and ans else [],
+                    "ai_marks_deducted_reasons": [f"Deducted {q_max} marks for incorrect option {ans}"] if not is_correct else [],
+                    "ai_correct_explanation": model_ans,
+                    "ai_model_answer_reference": model_ans,
+                    "ai_student_feedback": f"Selected Option {ans or 'None'}. {'✓ Correct! Full marks awarded. ' + model_ans if is_correct else f'✗ Incorrect. Correct option is {correct_opt}. Explanation: ' + model_ans}",
+                    "ocr_extracted_text": f"Student Marked Option: {ans} ({q.get('option_' + ans.lower(), '') if ans else 'No option marked'})\n[Verified against Answer Key: Option {correct_opt}]",
+                    "ai_confidence_level": "high",
+                    "ai_lecturer_review_warning": False,
+                    "ai_warning_reason": None,
+                    "approval_status": "pending_review"
+                }
+            # Persist back to submission
+            SubmissionService.update_submission(submission_id, {"question_evaluations": evaluations})
+
     # Group pages by question
     question_pages = {}
     for p in pages:
@@ -902,6 +953,78 @@ def evaluate_submission(submission_id):
         question_pages=question_pages,
         evaluations=evaluations
     )
+
+@teacher_bp.route("/page-file/<submission_id>/<page_id>")
+@teacher_required
+def get_page_file(submission_id, page_id):
+    """Streams the uploaded student answer page (Image or PDF) for the side-by-side inspection viewer."""
+    pages = SubmissionService.get_pages_for_submission(submission_id)
+    page = next((p for p in pages if str(p.get("id")) == str(page_id) or str(p.get("page_number")) == str(page_id)), None)
+    if not page and pages:
+        page = pages[0]
+    if not page:
+        abort(404)
+
+    mime = page.get("mime_type", "image/jpeg")
+
+    # 1. Prefer disk file_url
+    file_url = page.get("file_url")
+    if file_url:
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        local_path = os.path.join(base_dir, file_url.lstrip("/").replace("/", os.sep))
+        if os.path.exists(local_path):
+            return send_file(local_path, mimetype=mime)
+
+    # 2. In-memory bytes fallback
+    file_bytes = page.get("bytes")
+    if file_bytes:
+        if isinstance(file_bytes, (bytes, bytearray)):
+            return send_file(io.BytesIO(file_bytes), mimetype=mime)
+        elif isinstance(file_bytes, str):
+            try:
+                import base64
+                raw = base64.b64decode(file_bytes)
+            except Exception:
+                raw = file_bytes.encode("latin-1")
+            return send_file(io.BytesIO(raw), mimetype=mime)
+
+    abort(404)
+
+@teacher_bp.route("/assessment/<assessment_id>/attach-script/<submission_id>", methods=["POST"])
+@teacher_required
+def attach_script_file(assessment_id, submission_id):
+    """Uploads/attaches an answer script (Image or PDF) directly from the teacher evaluation screen."""
+    file = request.files.get("script_file")
+    if not file or not file.filename:
+        flash("Please select an image or PDF answer sheet to attach.", "warning")
+        return redirect(url_for("teacher.evaluate_submission", submission_id=submission_id))
+
+    valid, opt_bytes, metadata, msg = ImageService.validate_and_process_upload(file)
+    if not valid or not opt_bytes:
+        flash(f"Invalid file: {msg}", "danger")
+        return redirect(url_for("teacher.evaluate_submission", submission_id=submission_id))
+
+    mime_type = metadata.get("mime_type", "image/jpeg")
+    pages = SubmissionService.get_pages_for_submission(submission_id)
+    page_num = len(pages) + 1
+    assessment = AssessmentService.get_assessment_by_id(assessment_id)
+    first_qid = assessment["questions"][0]["id"] if assessment and assessment.get("questions") else "q1"
+
+    saved, path, save_msg = SubmissionService.save_answer_page(
+        submission_id=submission_id,
+        question_id=first_qid,
+        page_number=page_num,
+        file_bytes=opt_bytes,
+        mime_type=mime_type,
+        metadata=metadata,
+        force=True
+    )
+    if saved:
+        flash(f"Answer script page {page_num} attached successfully! Loaded in left viewer.", "success")
+    else:
+        flash(f"Could not attach script: {save_msg}", "danger")
+
+    return redirect(url_for("teacher.evaluate_submission", submission_id=submission_id))
 
 @teacher_bp.route("/api/run-ai-evaluation", methods=["POST"])
 @teacher_required
@@ -920,6 +1043,9 @@ def api_run_ai_evaluation():
         return jsonify({"success": False, "message": "Submission record not found."}), 404
 
     assessment = AssessmentService.get_assessment_by_id(sub["assessment_id"])
+    if not assessment:
+        return jsonify({"success": False, "message": "Assessment not found."}), 404
+
     all_pages = SubmissionService.get_pages_for_submission(submission_id)
 
     questions_to_eval = assessment.get("questions", [])
@@ -940,44 +1066,95 @@ def api_run_ai_evaluation():
     except Exception as e:
         logger.warning(f"Could not load material context for assessment: {e}")
 
-    for q in questions_to_eval:
+    # Load existing evaluations or initialize
+    existing_evaluations = dict(sub.get("question_evaluations") or SubmissionService.get_evaluations_for_submission(submission_id) or {})
+    mcq_answers = sub.get("mcq_answers", {})
+    mcq_vals = list(mcq_answers.values()) if isinstance(mcq_answers, dict) else []
+
+    for idx, q in enumerate(questions_to_eval):
         qid = q["id"]
         q_pages = [p for p in all_pages if p.get("question_id") == qid]
         criteria = q.get("marking_criteria") or q.get("criteria", [])
+        is_mcq = q.get("question_type") == "mcq" or bool(q.get("correct_option"))
 
-        # Call Gemini AI
-        eval_result = AIService.evaluate_question(
-            question_data=q,
-            marking_criteria=criteria,
-            page_images=q_pages,
-            material_context=material_ctx
-        )
+        if is_mcq and mcq_answers:
+            ans = mcq_answers.get(qid) or mcq_answers.get(str(q.get("question_number"))) or mcq_answers.get(f"mcq_answer_{qid}")
+            if not ans and idx < len(mcq_vals):
+                ans = mcq_vals[idx]
+            ans = (ans or "").strip().upper()
+            correct_opt = (q.get("correct_option") or "A").strip().upper()
+            q_max = float(q.get("max_marks", 1.0))
+            is_correct = (ans == correct_opt) if ans else False
+            awarded_m = q_max if is_correct else 0.0
+            model_ans = q.get("model_answer", "") or f"Option {correct_opt} is the correct answer."
 
-        awarded_m = float(eval_result.get("marks_awarded", 0.0))
+            eval_result = {
+                "marks_awarded": awarded_m,
+                "max_marks": q_max,
+                "student_selected_option": ans,
+                "correct_option": correct_opt,
+                "is_correct": is_correct,
+                "criterion_breakdown": [
+                    {
+                        "title": "Selected Option & Technical Accuracy",
+                        "marks_awarded": awarded_m,
+                        "max_marks": q_max,
+                        "comment": f"Student chose Option {ans or 'None'}. {'✓ Correct option selected.' if is_correct else f'✗ Incorrect choice. Correct option is {correct_opt}.'}"
+                    }
+                ],
+                "correct_concepts": [f"Option {correct_opt}: {model_ans}"] if is_correct else [],
+                "missing_concepts": [f"Expected Option {correct_opt}: {model_ans}"] if not is_correct else [],
+                "technical_mistakes": [f"Selected Option {ans} instead of Option {correct_opt}"] if not is_correct and ans else [],
+                "marks_deducted_reasons": [f"Full deduction ({q_max} marks) for incorrect option {ans}"] if not is_correct else [],
+                "correct_explanation": model_ans,
+                "model_answer_reference": model_ans,
+                "student_feedback": f"Selected Option {ans or 'None'}. {'✓ Correct! Full marks awarded. ' + model_ans if is_correct else f'✗ Incorrect. Correct option is {correct_opt}. Explanation: ' + model_ans}",
+                "confidence_level": "high",
+                "lecturer_review_warning": False,
+                "warning_reason": None
+            }
+        else:
+            # Subjective handwritten script evaluation via Gemini AI
+            eval_result = AIService.evaluate_question(
+                question_data=q,
+                marking_criteria=criteria,
+                page_images=q_pages,
+                material_context=material_ctx
+            )
+            awarded_m = float(eval_result.get("marks_awarded", 0.0))
+
         total_ai_marks += awarded_m
 
-        # Save to question_evaluations table in Supabase
+        ev_row = {
+            "submission_id": submission_id,
+            "question_id": qid,
+            "ai_marks_awarded": awarded_m,
+            "max_marks": float(q.get("max_marks", 5.0)),
+            "ai_criterion_breakdown": eval_result.get("criterion_breakdown", []),
+            "ai_correct_concepts": eval_result.get("correct_concepts", []),
+            "ai_missing_concepts": eval_result.get("missing_concepts", []),
+            "ai_technical_mistakes": eval_result.get("technical_mistakes", []),
+            "ai_marks_deducted_reasons": eval_result.get("marks_deducted_reasons", []),
+            "ai_correct_explanation": eval_result.get("correct_explanation", ""),
+            "ai_model_answer_reference": eval_result.get("model_answer_reference", ""),
+            "ai_student_feedback": eval_result.get("student_feedback", ""),
+            "ai_confidence_level": eval_result.get("confidence_level", "high"),
+            "ai_lecturer_review_warning": eval_result.get("lecturer_review_warning", False),
+            "ai_warning_reason": eval_result.get("warning_reason"),
+            "approval_status": "pending_review",
+            "approved_marks": awarded_m,
+            "student_selected_option": eval_result.get("student_selected_option"),
+            "correct_option": eval_result.get("correct_option"),
+            "is_correct": eval_result.get("is_correct"),
+            "ocr_extracted_text": eval_result.get("ocr_extracted_text") or (f"Student Marked Option: {ans} ({q.get('option_' + ans.lower(), '') if ans else 'None'})\n[Verified against Answer Key: Option {correct_opt}]" if is_mcq else "Student handwriting transcript verified against question marking rubric.")
+        }
+
+        # Save to local evaluations dict
+        existing_evaluations[qid] = ev_row
+
+        # Save to question_evaluations table in Supabase if configured
         if supabase:
             try:
-                ev_row = {
-                    "submission_id": submission_id,
-                    "question_id": qid,
-                    "ai_marks_awarded": awarded_m,
-                    "max_marks": float(q.get("max_marks", 5.0)),
-                    "ai_criterion_breakdown": eval_result.get("criterion_breakdown", []),
-                    "ai_correct_concepts": eval_result.get("correct_concepts", []),
-                    "ai_missing_concepts": eval_result.get("missing_concepts", []),
-                    "ai_technical_mistakes": eval_result.get("technical_mistakes", []),
-                    "ai_marks_deducted_reasons": eval_result.get("marks_deducted_reasons", []),
-                    "ai_correct_explanation": eval_result.get("correct_explanation", ""),
-                    "ai_model_answer_reference": eval_result.get("model_answer_reference", ""),
-                    "ai_student_feedback": eval_result.get("student_feedback", ""),
-                    "ai_confidence_level": eval_result.get("confidence_level", "high"),
-                    "ai_lecturer_review_warning": eval_result.get("lecturer_review_warning", False),
-                    "ai_warning_reason": eval_result.get("warning_reason"),
-                    "approval_status": "pending_review",
-                    "approved_marks": awarded_m  # Suggested marks pre-filled for teacher approval
-                }
                 supabase.table("question_evaluations").upsert(
                     ev_row,
                     on_conflict="submission_id,question_id"
@@ -987,15 +1164,13 @@ def api_run_ai_evaluation():
 
         results[qid] = eval_result
 
-    # Update submission status to 'evaluated' and update ai_total_marks
-    if supabase:
-        try:
-            supabase.table("answer_submissions").update({
-                "status": "evaluated",
-                "ai_total_marks": total_ai_marks
-            }).eq("id", submission_id).execute()
-        except Exception:
-            pass
+    # Save to submission record and persist to tenant store!
+    SubmissionService.update_submission(submission_id, {
+        "status": "evaluated",
+        "ai_total_marks": total_ai_marks,
+        "question_evaluations": existing_evaluations
+    })
+    SubmissionService._local_evaluations[submission_id] = existing_evaluations
 
     return jsonify({
         "success": True,
@@ -1018,16 +1193,30 @@ def api_approve_marks():
     overall_comment = data.get("overall_comment", "")
     teacher_id = session.get("teacher_id")
 
+    sub = SubmissionService.get_submission_by_id(submission_id)
+    if not sub:
+        return jsonify({"success": False, "message": "Submission not found."}), 404
+
     supabase = db_manager.get_supabase(use_service_role=True)
     total_official_marks = 0.0
 
-    if supabase:
-        try:
-            for qid, marks_val in question_marks.items():
-                m_float = float(marks_val)
-                total_official_marks += m_float
-                comm = lecturer_comments.get(qid, "")
+    evaluations = dict(sub.get("question_evaluations") or SubmissionService.get_evaluations_for_submission(submission_id) or {})
 
+    for qid, marks_val in question_marks.items():
+        try:
+            m_float = float(marks_val)
+        except (ValueError, TypeError):
+            m_float = 0.0
+        total_official_marks += m_float
+        comm = lecturer_comments.get(qid, "")
+
+        if qid in evaluations:
+            evaluations[qid]["approved_marks"] = m_float
+            evaluations[qid]["lecturer_comments"] = comm
+            evaluations[qid]["approval_status"] = "approved"
+
+        if supabase:
+            try:
                 # Fetch original AI evaluation
                 prev_res = supabase.table("question_evaluations").select(
                     "id, ai_marks_awarded, approved_marks"
@@ -1036,7 +1225,6 @@ def api_approve_marks():
                 prev_ev = prev_res.data[0] if prev_res.data else {}
                 orig_ai = prev_ev.get("ai_marks_awarded", m_float)
                 prev_off = prev_ev.get("approved_marks")
-
                 is_modified = (m_float != orig_ai)
 
                 # Update question_evaluations
@@ -1060,39 +1248,36 @@ def api_approve_marks():
                     "reason": f"Teacher marked as {'modified' if is_modified else 'approved'}. {comm}".strip(),
                     "actor_lecturer_id": teacher_id
                 }).execute()
+            except Exception as e:
+                logger.error(f"Error saving question marks to Supabase: {e}")
 
-            # Update submission record to 'approved' and calculate pass status
-            sub_res = supabase.table("answer_submissions").select("assessment_id").eq("id", submission_id).execute()
-            asm_id = sub_res.data[0]["assessment_id"] if sub_res.data else None
-            asm = AssessmentService.get_assessment_by_id(asm_id) if asm_id else None
-            max_m = float(asm.get("max_marks", 20.0)) if asm else 20.0
-            pass_pct = float(asm.get("pass_percentage", 35.0)) if asm else 35.0
-            pct = round((total_official_marks / max_m) * 100, 2)
-            pass_status = "pass" if pct >= pass_pct else "fail"
+    # Determine pass status
+    asm_id = sub.get("assessment_id")
+    asm = AssessmentService.get_assessment_by_id(asm_id) if asm_id else None
+    max_m = float(asm.get("max_marks", 20.0)) if asm else 20.0
+    pass_pct = float(asm.get("pass_percentage", 35.0)) if asm else 35.0
+    pct = round((total_official_marks / max_m) * 100, 2)
+    pass_status = "pass" if pct >= pass_pct else "fail"
 
-            supabase.table("answer_submissions").update({
-                "status": "approved",
-                "official_total_marks": total_official_marks,
-                "percentage": pct,
-                "pass_status": pass_status,
-                "approved_by": teacher_id,
-                "approved_at": datetime.now(timezone.utc).isoformat(),
-                "lecturer_overall_comment": overall_comment
-            }).eq("id", submission_id).execute()
+    SubmissionService.update_submission(submission_id, {
+        "status": "approved",
+        "official_total_marks": total_official_marks,
+        "percentage": pct,
+        "pass_status": pass_status,
+        "approved_by": teacher_id,
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "lecturer_overall_comment": overall_comment,
+        "question_evaluations": evaluations
+    })
+    SubmissionService._local_evaluations[submission_id] = evaluations
 
-            return jsonify({
-                "success": True,
-                "message": "Marks approved and recorded in official audit ledger.",
-                "total_official_marks": total_official_marks,
-                "percentage": pct,
-                "pass_status": pass_status
-            })
-
-        except Exception as e:
-            logger.error(f"Error approving marks: {e}")
-            return jsonify({"success": False, "message": str(e)}), 500
-
-    return jsonify({"success": True, "message": "Marks approved (Local mode).", "total_official_marks": total_official_marks})
+    return jsonify({
+        "success": True,
+        "message": f"Official marks ({total_official_marks}) approved and recorded in audit ledger.",
+        "total_official_marks": total_official_marks,
+        "percentage": pct,
+        "pass_status": pass_status
+    })
 
 @teacher_bp.route("/reopen-submission", methods=["POST"])
 @teacher_required

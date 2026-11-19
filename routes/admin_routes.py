@@ -1,5 +1,6 @@
 import os
 import logging
+from functools import wraps
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from config import Config
 from services.ai_service import AIService
@@ -11,12 +12,12 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 def admin_required(f):
     """Enforces strict administrator privileges."""
+    @wraps(f)
     def wrapper(*args, **kwargs):
         if session.get("role") != "admin":
             flash("Administrator privileges required.", "warning")
             return redirect(url_for("teacher.login"))
         return f(*args, **kwargs)
-    wrapper.__name__ = f.__name__
     return wrapper
 
 @admin_bp.route("/")
@@ -27,12 +28,12 @@ def admin_root():
 
 def admin_or_lecturer_required(f):
     """Enforces administrator or lecturer privileges."""
+    @wraps(f)
     def wrapper(*args, **kwargs):
         if session.get("role") not in ("admin", "lecturer"):
             flash("Administrator or Lecturer privileges required.", "warning")
             return redirect(url_for("teacher.login"))
         return f(*args, **kwargs)
-    wrapper.__name__ = f.__name__
     return wrapper
 
 def is_valid_new_key(k: str) -> bool:

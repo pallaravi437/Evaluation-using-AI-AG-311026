@@ -33,13 +33,14 @@
         <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">
           Marks Obtained
         </div>
-        <div style="font-size: 2.25rem; font-weight: 800; color: {% if submission.pass_status == 'pass' %}#34d399{% else %}#f87171{% endif %}; line-height: 1.2;">
-          {{ submission.official_total_marks if submission.official_total_marks is not none else submission.ai_total_marks or 0.0 }}
-          <span style="font-size: 1.1rem; color: #94a3b8; font-weight: 400;">/ {{ assessment.max_marks }}</span>
+        {% set display_marks = submission.get('official_total_marks') if submission.get('official_total_marks') is not none else (submission.get('ai_total_marks') if submission.get('ai_total_marks') is not none else 0.0) %}
+        <div style="font-size: 2.25rem; font-weight: 800; color: {% if submission.get('pass_status') == 'pass' %}#34d399{% else %}#f87171{% endif %}; line-height: 1.2;">
+          {{ display_marks }}
+          <span style="font-size: 1.1rem; color: #94a3b8; font-weight: 400;">/ {{ assessment.get('max_marks', 5.0) }}</span>
         </div>
         <div style="margin-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 0.5rem;">
-          <span style="font-size: 0.85rem; font-weight: 700; color: #cbd5e1;">{{ submission.percentage }}%</span>
-          {% if submission.pass_status == 'pass' %}
+          <span style="font-size: 0.85rem; font-weight: 700; color: #cbd5e1;">{{ submission.get('percentage', 0.0) }}%</span>
+          {% if submission.get('pass_status') == 'pass' %}
             <span class="badge badge-success" style="font-size: 0.85rem; font-weight: 700;">PASS ✓</span>
           {% else %}
             <span class="badge badge-danger" style="font-size: 0.85rem; font-weight: 700;">FAIL</span>

@@ -140,11 +140,12 @@
       </div>
     </div>
   {% else %}
-    <div class="card" style="grid-column: span 2; text-align: center; padding: 3rem;">
-      <p style="color: var(--text-muted);">No assessments currently active for your branch.</p>
+    <div class="card empty-state span-all">
+      <p>No assessments currently active for your branch.</p>
     </div>
   {% endfor %}
 </div>
+<p id="student-filter-empty" class="empty-state" style="display: none;">No assessments match your search or filter.</p>
 {% endblock %}
 
 {% block extra_js %}
@@ -166,13 +167,18 @@
   function filterStudentTests() {
     const q = (document.getElementById('student-test-search').value || '').toLowerCase().trim();
     const cards = document.querySelectorAll('.student-test-card');
+    let visible = 0;
     cards.forEach(c => {
       const cardType = c.getAttribute('data-type') || '';
       const cardSearch = c.getAttribute('data-search') || '';
       const matchesType = (activeStudentTypeFilter === 'all') || (cardType === activeStudentTypeFilter);
       const matchesSearch = !q || cardSearch.includes(q);
-      c.style.display = (matchesType && matchesSearch) ? 'flex' : 'none';
+      const show = matchesType && matchesSearch;
+      c.style.display = show ? 'flex' : 'none';
+      if (show) visible += 1;
     });
+    const empty = document.getElementById('student-filter-empty');
+    if (empty) empty.style.display = (cards.length && !visible) ? 'block' : 'none';
   }
 </script>
 {% endblock %}

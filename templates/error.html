@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}{{ error_code }} - {{ error_title }} - Online Evaluator{% endblock %}
+
+{% block content %}
+<div class="card empty-state" style="max-width: 560px; margin: 3rem auto;">
+  <p style="font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--danger); margin-bottom: 0.5rem;">Error {{ error_code }}</p>
+  <h1 style="font-size: 1.75rem; margin-bottom: 0.5rem;">{{ error_title }}</h1>
+  <p style="margin-bottom: 1.5rem;">{{ error_message }}</p>
+  <a href="{{ url_for('index') }}" class="btn btn-primary">Return to Home</a>
+</div>
+{% endblock %}

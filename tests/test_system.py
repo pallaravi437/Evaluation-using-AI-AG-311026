@@ -22,6 +22,25 @@ def test_health_check(client):
     assert data["status"] == "healthy"
     assert data["timezone"] == "Asia/Kolkata"
 
+
+def test_unknown_route_renders_error_page(client):
+    resp = client.get("/this-route-does-not-exist")
+    assert resp.status_code == 404
+    assert b"Page Not Found" in resp.data
+
+
+def test_home_page_does_not_post_demo_passwords(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert b'teacher123' not in resp.data
+    assert b'value="26054-ES-041"' not in resp.data
+
+
+def test_score_distribution_buckets():
+    from services.analytics_service import AnalyticsService
+    dist = AnalyticsService._score_distribution([0, 8, 12, 16, 20], 20.0)
+    assert dist["counts"] == [1, 1, 1, 1, 1]
+
 def test_student_pin_auth():
     """Verifies student PIN authentication logic."""
     success, data, msg = AuthService.authenticate_student("KASHABOINA PRANAVI", "26054-ES-041", "127.0.0.1")
@@ -532,8 +551,10 @@ def test_mcq_student_workflow_full_auto_no_ai():
     from app import app
     client = app.test_client()
 
+    import uuid
+    test_student_id = f"test-student-mcq-{uuid.uuid4().hex[:6]}"
     with client.session_transaction() as sess:
-        sess["student_id"] = "test-student-mcq-flow"
+        sess["student_id"] = test_student_id
         sess["student_name"] = "Diploma Test Candidate"
         sess["student_pin"] = "26054-ES-099"
         sess["role"] = "student"
@@ -548,7 +569,7 @@ def test_mcq_student_workflow_full_auto_no_ai():
     # bea-slip-test-001 has 5 questions:
     # Q1 correct is C, Q2 correct is A, Q3 correct is B, Q4 correct is C, Q5 correct is B
     # Let student answer Q1->C (correct), Q2->A (correct), Q3->A (wrong), Q4->C (correct), Q5 unanswered
-    draft = SubmissionService.get_or_create_draft_submission("bea-slip-test-001", "test-student-mcq-flow")
+    draft = SubmissionService.get_or_create_draft_submission("bea-slip-test-001", test_student_id)
     form_data = {
         "submission_id": draft["id"],
         "mcq_answer_bea-slip-test-001-q1": "C",

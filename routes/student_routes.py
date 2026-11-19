@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from functools import wraps
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from services.auth_service import AuthService
 from services.assessment_service import AssessmentService
@@ -21,12 +22,12 @@ student_bp = Blueprint("student", __name__, url_prefix="/student")
 
 def student_required(f):
     """Decorator to enforce student session."""
+    @wraps(f)
     def wrapper(*args, **kwargs):
         if session.get("role") != "student" or not session.get("student_id"):
             flash("Please enter your Name and PIN to log in.", "warning")
             return redirect(url_for("student.login"))
         return f(*args, **kwargs)
-    wrapper.__name__ = f.__name__
     return wrapper
 
 @student_bp.route("/signup", methods=["GET", "POST"])

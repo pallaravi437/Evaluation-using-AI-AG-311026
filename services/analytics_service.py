@@ -111,9 +111,29 @@ class AnalyticsService:
                 "pass_percentage": pass_percentage
             },
             "rankings": ranked_students,
+            "distribution": cls._score_distribution(scores, max_marks),
             "topic_analysis": topic_analysis,
             "ai_remedial_recommendations": remedial_recommendations
         }
+
+    @staticmethod
+    def _score_distribution(scores: List[float], max_marks: float) -> Dict[str, Any]:
+        """Buckets student percentages for the marks-distribution chart."""
+        labels = ["0-35% (Fail)", "36-50%", "51-65%", "66-80%", "81-100%"]
+        counts = [0, 0, 0, 0, 0]
+        for score in scores:
+            pct = (float(score) / max_marks) * 100 if max_marks else 0
+            if pct <= 35:
+                counts[0] += 1
+            elif pct <= 50:
+                counts[1] += 1
+            elif pct <= 65:
+                counts[2] += 1
+            elif pct <= 80:
+                counts[3] += 1
+            else:
+                counts[4] += 1
+        return {"labels": labels, "counts": counts}
 
     @staticmethod
     def _analyze_topics(assessment_id: str, ranked_students: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -12,13 +12,21 @@ from services.student_service import StudentService
 @pytest.fixture(autouse=True)
 def clean_test_lecturers():
     """Ensure clean lecturer records before and after each test."""
-    lecturers = LecturerService._load_lecturers()
-    cleaned = [l for l in lecturers if not l.get("username", "").startswith("test_")]
-    LecturerService._save_lecturers(cleaned)
+    def _do_clean():
+        lecturers = LecturerService._load_lecturers()
+        cleaned = [
+            l for l in lecturers 
+            if not (
+                l.get("username", "").startswith("test_") or 
+                l.get("username", "").startswith("anand_") or 
+                l.get("username", "").startswith("sub_lec_")
+            )
+        ]
+        LecturerService._save_lecturers(cleaned)
+
+    _do_clean()
     yield
-    lecturers = LecturerService._load_lecturers()
-    cleaned = [l for l in lecturers if not l.get("username", "").startswith("test_")]
-    LecturerService._save_lecturers(cleaned)
+    _do_clean()
 
 @pytest.fixture
 def app():
@@ -202,8 +210,8 @@ def test_student_registration_with_available_lecturers(client):
     # 1. Register and approve lecturer
     ok, lec_data, _ = LecturerService.register_lecturer(
         full_name=f"Prof. Anand Rao {uniq}",
-        username=f"anand_{uniq}",
-        email=f"anand_{uniq}@college.edu",
+        username=f"test_anand_{uniq}",
+        email=f"test_anand_{uniq}@college.edu",
         password="secretpassword",
         subject="Embedded Systems"
     )
@@ -264,3 +272,110 @@ def test_student_registration_with_available_lecturers(client):
     }, follow_redirects=True)
     assert approved_login.status_code == 200
     assert b"Welcome, MOHAMMED IMRAN" in approved_login.data or b"Available Assessments" in approved_login.data
+
+
+def test_student_submission_reflects_in_teacher_dashboard(client):
+    """
+    Verifies that when a student submits an assessment,
+    it immediately reflects on the teacher's dashboard:
+    1. Correct student Name & PIN shown in submissions table
+    2. Submission tracker count incremented
+    3. Teacher can open evaluation and approve marks
+    """
+    import uuid
+    from services.submission_service import SubmissionService
+    uniq = uuid.uuid4().hex[:6].upper()
+
+    # 1. Register & approve lecturer
+    ok, lec_data, _ = LecturerService.register_lecturer(
+        full_name=f"Prof. Test Sub {uniq}",
+        username=f"test_sub_lec_{uniq}",
+        email=f"test_sub_lec_{uniq}@college.edu",
+        password="secretpassword",
+        subject="Digital Electronics"
+    )
+    assert ok is True
+    lec_id = lec_data["id"]
+    LecturerService.approve_lecturer(lec_id)
+
+    # 2. Lecturer creates an assessment
+    ok, asm_id, _ = AssessmentService.create_assessment(
+        title=f"Digital Systems Test {uniq}",
+        assessment_type="mcq_test",
+        max_marks=10.0,
+        assessment_date="2026-11-20",
+        questions=[{
+            "id": f"q1_{uniq}",
+            "question_number": "1",
+            "question_type": "mcq",
+            "question_text": "Number of states in a mod-16 counter is:",
+            "option_a": "16",
+            "option_b": "15",
+            "option_c": "8",
+            "option_d": "4",
+            "correct_option": "A",
+            "max_marks": 10.0
+        }],
+        created_by_id=lec_id
+    )
+    assert ok is True
+
+    # Publish assessment
+    AssessmentService.toggle_publish(asm_id, publish=True)
+
+    # 3. Student registers & gets approved
+    stud_pin = f"26054-SUB-{uniq}"
+    stud_name = f"SANJANA REDDY {uniq}"
+    StudentService.register_student(
+        full_name=stud_name,
+        pin=stud_pin,
+        lecturer_id=lec_id,
+        branch="ECE",
+        semester="Semester 3",
+        section="A"
+    )
+    pending = StudentService.get_pending_students_for_lecturer(lec_id)
+    reg = next(p for p in pending if p["pin"] == stud_pin)
+    StudentService.approve_student_registration(reg["id"], lec_id)
+
+    # 4. Student logs in and submits MCQ
+    with client.session_transaction() as sess:
+        sess["role"] = "student"
+        sess["student_id"] = reg["id"]
+        sess["student_name"] = stud_name
+        sess["student_pin"] = stud_pin
+        sess["student_lecturer_id"] = lec_id
+
+    draft = SubmissionService.get_or_create_draft_submission(asm_id, reg["id"])
+    assert draft is not None
+
+    sub_post = client.post(
+        f"/student/assessment/{asm_id}/submit-mcq",
+        data={
+            "submission_id": draft["id"],
+            f"mcq_answer_q1_{uniq}": "A"
+        },
+        follow_redirects=True
+    )
+    assert sub_post.status_code == 200
+
+    # 5. Teacher logs in and checks dashboard
+    with client.session_transaction() as sess:
+        sess.clear()
+        sess["role"] = "lecturer"
+        sess["teacher_id"] = lec_id
+        sess["teacher_name"] = f"Prof. Test Sub {uniq}"
+
+    dash_resp = client.get(f"/teacher/dashboard?assessment_id={asm_id}")
+    assert dash_resp.status_code == 200
+
+    # Verify student reflects in teacher dashboard
+    assert stud_pin.encode("utf-8") in dash_resp.data
+    assert stud_name.encode("utf-8") in dash_resp.data
+    assert draft["submission_receipt_code"].encode("utf-8") in dash_resp.data
+
+    # Verify teacher can view evaluation view
+    eval_resp = client.get(f"/teacher/evaluate/{draft['id']}")
+    assert eval_resp.status_code == 200
+    assert stud_pin.encode("utf-8") in eval_resp.data
+

@@ -25,30 +25,18 @@
       Ground evaluations directly on your course syllabus. Evaluate handwritten paper scripts with multimodal vision AI, deliver instant MCQ analytics, and route academic data across distributed database clusters.
     </p>
 
-    <!-- Quick 1-Click Access Buttons -->
     <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-      <form action="{{ url_for('teacher.login') }}" method="POST" style="display: inline;">
-        <input type="hidden" name="email" value="teacher">
-        <input type="hidden" name="password" value="teacher123">
-        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);">
-          ⚡ 1-Click Demo Lecturer Login →
-        </button>
-      </form>
-
-      <form action="{{ url_for('student.login') }}" method="POST" style="display: inline;">
-        <input type="hidden" name="name" value="KASHABOINA PRANAVI">
-        <input type="hidden" name="pin" value="26054-ES-041">
-        <button type="submit" class="btn btn-secondary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600;">
-          🎓 1-Click Demo Student Login →
-        </button>
-      </form>
-
-      <a href="{{ url_for('teacher.signup') }}" class="btn btn-secondary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
-        ✨ Lecturer Signup →
+      <a href="{{ url_for('teacher.login') }}" class="btn btn-primary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);">
+        Lecturer Login →
       </a>
-
+      <a href="{{ url_for('student.login') }}" class="btn btn-secondary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600;">
+        Student Login →
+      </a>
+      <a href="{{ url_for('teacher.signup') }}" class="btn btn-secondary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
+        Lecturer Signup →
+      </a>
       <a href="{{ url_for('student.signup') }}" class="btn btn-secondary" style="padding: 0.75rem 1.25rem; font-size: 0.92rem; font-weight: 600; color: #a5b4fc; border-color: rgba(165, 180, 252, 0.4);">
-        🎓 Student Register →
+        Student Register →
       </a>
     </div>
   </div>
@@ -109,7 +97,7 @@
         <h2 style="font-size: 1.4rem; font-weight: 700; margin-bottom: 0.5rem; color: #f8fafc;">
           Lecturer & Admin Studio
         </h2>
-        <p style="color: var(--text-muted); font-size: 0.9rem; line-line-height: 1.55; margin-bottom: 1.5rem;">
+        <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.55; margin-bottom: 1.5rem;">
           Create assessments, upload course syllabi to ground AI models, generate questions from exam papers or curriculum notes, and review student handwritten scripts with side-by-side zoomable image inspection.
         </p>
 

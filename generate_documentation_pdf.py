@@ -409,3 +409,4 @@ def build_pdf(output_pdf_path="Online_AI_Evaluator_Documentation.pdf"):
 
 if __name__ == "__main__":
     build_pdf()
+

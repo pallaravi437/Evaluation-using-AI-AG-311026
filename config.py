@@ -26,6 +26,7 @@ class Config:
     SESSION_COOKIE_NAME = "bea_session"
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
     PERMANENT_SESSION_LIFETIME = timedelta(hours=4)
     
     # Timezone (Asia/Kolkata default as required for Diploma assessments)

@@ -1,0 +1,4 @@
+Render Live URL: https://online-ai-evaluator.onrender.com
+Live Tunnel URL: https://4217e867172f37.app.lhr.life
+Local URL: http://127.0.0.1:5000
+LAN URL: http://172.16.151.21:5000

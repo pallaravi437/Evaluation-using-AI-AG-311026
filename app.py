@@ -61,12 +61,22 @@ def create_app() -> Flask:
 
     @app.errorhandler(404)
     def page_not_found(e):
-        return render_template("base.html", error_title="404 - Page Not Found", error_message="The requested assessment or page could not be located."), 404
+        return render_template(
+            "error.html",
+            error_code=404,
+            error_title="Page Not Found",
+            error_message="The requested assessment or page could not be located."
+        ), 404
 
     @app.errorhandler(500)
     def internal_server_error(e):
-        logger.error(f"Internal server error: {e}")
-        return render_template("base.html", error_title="500 - Server Error", error_message="An unexpected system error occurred. The audit trace has been logged."), 500
+        logger.error("Internal server error: %s", e)
+        return render_template(
+            "error.html",
+            error_code=500,
+            error_title="Server Error",
+            error_message="An unexpected system error occurred. The audit trace has been logged."
+        ), 500
 
     return app
 
@@ -74,5 +84,8 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    logger.info(f"Starting BEA AI Assessment System on http://127.0.0.1:{port}")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    debug = os.getenv("FLASK_DEBUG", os.getenv("FLASK_ENV", "")).lower() in (
+        "1", "true", "yes", "development"
+    )
+    logger.info("Starting BEA AI Assessment System on http://127.0.0.1:%s (debug=%s)", port, debug)
+    app.run(host="0.0.0.0", port=port, debug=debug)

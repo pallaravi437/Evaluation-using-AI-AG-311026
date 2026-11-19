@@ -217,6 +217,8 @@ class AssessmentService:
         else:
             _local_questions[new_id] = []
 
+        record["questions"] = _local_questions[new_id]
+
         if created_by_id and created_by_id.startswith("lec-"):
             from services.lecturer_service import LecturerService
             tenant_asms = LecturerService.load_tenant_data(created_by_id, "assessments.json") or []
@@ -224,6 +226,28 @@ class AssessmentService:
             LecturerService.save_tenant_data(created_by_id, "assessments.json", tenant_asms)
 
         return True, new_id, "Assessment created (Local session)."
+
+    @classmethod
+    def _find_and_update_tenant_assessment(cls, assessment_id: str, updater_fn) -> bool:
+        """Helper to find an assessment in tenant stores and apply an updater function, saving back to disk."""
+        try:
+            from services.lecturer_service import LecturerService, TENANTS_DIR
+            if os.path.exists(TENANTS_DIR):
+                for tid in os.listdir(TENANTS_DIR):
+                    tenant_asms = LecturerService.load_tenant_data(tid, "assessments.json")
+                    if tenant_asms:
+                        updated = False
+                        for a in tenant_asms:
+                            if a.get("id") == assessment_id:
+                                updater_fn(a, tenant_asms, tid)
+                                updated = True
+                                break
+                        if updated:
+                            LecturerService.save_tenant_data(tid, "assessments.json", tenant_asms)
+                            return True
+        except Exception as e:
+            logger.error(f"Error in tenant assessment operation for {assessment_id}: {e}")
+        return False
 
     @classmethod
     def recalculate_total_marks(cls, assessment_id: str) -> float:
@@ -244,12 +268,32 @@ class AssessmentService:
 
         # Local mode
         questions = _local_questions.get(assessment_id, [])
+        if not questions:
+            try:
+                from services.lecturer_service import LecturerService, TENANTS_DIR
+                if os.path.exists(TENANTS_DIR):
+                    for tid in os.listdir(TENANTS_DIR):
+                        tenant_asms = LecturerService.load_tenant_data(tid, "assessments.json")
+                        for a in (tenant_asms or []):
+                            if a.get("id") == assessment_id:
+                                questions = a.get("questions", [])
+                                break
+                        if questions:
+                            break
+            except Exception:
+                pass
+
         total = sum(float(q.get("max_marks") or 0.0) for q in questions)
         if total > 0:
             for asm in _local_assessments:
                 if asm.get("id") == assessment_id:
                     asm["max_marks"] = total
                     break
+
+            def _update_marks(a, tenant_asms, tid):
+                a["max_marks"] = total
+
+            cls._find_and_update_tenant_assessment(assessment_id, _update_marks)
         return total
 
     @classmethod
@@ -287,6 +331,13 @@ class AssessmentService:
         q_list = _local_questions.setdefault(assessment_id, [])
         q_copy["display_order"] = len(q_list) + 1
         q_list.append(q_copy)
+
+        def _add_q(a, tenant_asms, tid):
+            if "questions" not in a:
+                a["questions"] = []
+            a["questions"].append(q_copy)
+
+        cls._find_and_update_tenant_assessment(assessment_id, _add_q)
         cls.recalculate_total_marks(assessment_id)
         return True, q_id, "Question added (Local mode)."
 
@@ -321,6 +372,7 @@ class AssessmentService:
                 return False, str(e)
 
         # Local mode
+        found = False
         if assessment_id in _local_questions:
             for q in _local_questions[assessment_id]:
                 if q.get("id") == question_id:
@@ -344,10 +396,39 @@ class AssessmentService:
                         q["question_image_url"] = question_data["question_image_url"]
                     if question_data.get("criteria"):
                         q["marking_criteria"] = q["criteria"] = question_data["criteria"]
-                    cls.recalculate_total_marks(assessment_id)
-                    return True, "Question updated (Local mode)."
-            return False, "Question not found."
-        return False, "Assessment not found."
+                    found = True
+                    break
+
+        def _update_q(a, tenant_asms, tid):
+            for q in a.get("questions", []):
+                if q.get("id") == question_id:
+                    q.update({
+                        "question_number": question_data.get("question_number", q.get("question_number")),
+                        "question_type": q_type,
+                        "option_a": question_data.get("option_a", ""),
+                        "option_b": question_data.get("option_b", ""),
+                        "option_c": question_data.get("option_c", ""),
+                        "option_d": question_data.get("option_d", ""),
+                        "correct_option": clean_ans if q_type == "mcq" else None,
+                        "question_text": question_data.get("question_text", q.get("question_text")),
+                        "max_marks": float(question_data.get("max_marks", 1.0 if q_type == "mcq" else 5.0)),
+                        "model_answer": question_data.get("model_answer", q.get("model_answer")),
+                        "acceptable_alternatives": question_data.get("acceptable_alternatives", q.get("acceptable_alternatives")),
+                        "difficulty": question_data.get("difficulty", q.get("difficulty")),
+                        "requires_diagram": bool(question_data.get("requires_diagram", False)),
+                        "requires_numerical": bool(question_data.get("requires_numerical", False)),
+                    })
+                    if question_data.get("question_image_url"):
+                        q["question_image_url"] = question_data["question_image_url"]
+                    if question_data.get("criteria"):
+                        q["marking_criteria"] = q["criteria"] = question_data["criteria"]
+                    break
+
+        tenant_found = cls._find_and_update_tenant_assessment(assessment_id, _update_q)
+        cls.recalculate_total_marks(assessment_id)
+        if found or tenant_found:
+            return True, "Question updated (Local mode)."
+        return False, "Question not found."
 
     @classmethod
     def delete_question(cls, assessment_id: str, question_id: str) -> Tuple[bool, str]:
@@ -362,9 +443,18 @@ class AssessmentService:
                 logger.error(f"Error deleting question: {e}")
                 return False, str(e)
 
+        deleted = False
         if assessment_id in _local_questions:
             _local_questions[assessment_id] = [q for q in _local_questions[assessment_id] if q.get("id") != question_id]
-            cls.recalculate_total_marks(assessment_id)
+            deleted = True
+
+        def _del_q(a, tenant_asms, tid):
+            if "questions" in a:
+                a["questions"] = [q for q in a["questions"] if q.get("id") != question_id]
+
+        tenant_del = cls._find_and_update_tenant_assessment(assessment_id, _del_q)
+        cls.recalculate_total_marks(assessment_id)
+        if deleted or tenant_del:
             return True, "Question deleted (Local mode)."
         return False, "Assessment not found."
 
@@ -422,10 +512,33 @@ class AssessmentService:
         if has_subs:
             return False, "Cannot delete assessment: student submissions already exist."
 
-        _local_assessments = [a for a in _local_assessments if a["id"] != assessment_id]
+        deleted = False
+        if any(a["id"] == assessment_id for a in _local_assessments):
+            _local_assessments = [a for a in _local_assessments if a["id"] != assessment_id]
+            deleted = True
+
         if assessment_id in _local_questions:
             del _local_questions[assessment_id]
-        return True, "Assessment deleted."
+
+        # Check tenant stores
+        try:
+            from services.lecturer_service import LecturerService, TENANTS_DIR
+            if os.path.exists(TENANTS_DIR):
+                for tid in os.listdir(TENANTS_DIR):
+                    tenant_asms = LecturerService.load_tenant_data(tid, "assessments.json")
+                    if tenant_asms:
+                        initial_len = len(tenant_asms)
+                        remaining = [a for a in tenant_asms if a.get("id") != assessment_id]
+                        if len(remaining) < initial_len:
+                            LecturerService.save_tenant_data(tid, "assessments.json", remaining)
+                            deleted = True
+                            break
+        except Exception as e:
+            logger.error(f"Error deleting tenant assessment {assessment_id}: {e}")
+
+        if deleted:
+            return True, "Assessment deleted."
+        return False, "Assessment not found."
 
     @classmethod
     def toggle_publish(cls, assessment_id: str, publish: bool) -> Tuple[bool, str]:
@@ -447,6 +560,14 @@ class AssessmentService:
                 a["status"] = status_val
                 a["allow_submissions"] = publish
                 return True, f"Assessment status changed to {status_val}."
+
+        def _update_status(a, tenant_asms, tid):
+            a["status"] = status_val
+            a["allow_submissions"] = publish
+
+        if cls._find_and_update_tenant_assessment(assessment_id, _update_status):
+            return True, f"Assessment status changed to {status_val}."
+
         return False, "Assessment not found."
 
     @classmethod
