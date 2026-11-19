@@ -7,13 +7,13 @@ from datetime import datetime, timezone, date
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-from app import create_app
 from services.lecturer_service import LecturerService
 from services.student_service import StudentService
 from services.assessment_service import AssessmentService
 from services.submission_service import SubmissionService
 
-app = create_app()
+app = None
+
 
 SEED_DATA = [
     {
@@ -732,11 +732,17 @@ SEED_DATA = [
     }
 ]
 
-def seed_sample_ecosystem():
+def seed_sample_ecosystem(app_instance=None):
+    global app
     print("[*] Starting multi-tenant academic ecosystem seeding...")
     created_summary = []
 
-    with app.app_context():
+    target_app = app_instance or app
+    if target_app is None:
+        from app import create_app
+        target_app = create_app()
+
+    with target_app.app_context():
         for item in SEED_DATA:
             lec_conf = item["lecturer"]
             # 1. Check or register lecturer

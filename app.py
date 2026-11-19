@@ -24,6 +24,16 @@ def create_app() -> Flask:
     app.register_blueprint(teacher_bp)
     app.register_blueprint(admin_bp)
 
+    # Auto-seed 5-lecturer ecosystem on startup if not already seeded
+    try:
+        from services.lecturer_service import LecturerService
+        existing_lecturers = LecturerService._load_lecturers()
+        if len(existing_lecturers) < 5:
+            from seed_sample_ecosystem import seed_sample_ecosystem
+            seed_sample_ecosystem(app)
+    except Exception as e:
+        logger.warning("Auto-seed check on startup: %s", e)
+
     # Custom Jinja filters
     @app.template_filter("to_kolkata_time")
     def to_kolkata_time(value):
