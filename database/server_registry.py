@@ -23,7 +23,7 @@ except ImportError:
 
 try:
     import firebase_admin
-    from firebase_admin import credentials, firestore, storage as fb_storage
+    from firebase_admin import credentials, firestore
     FIREBASE_AVAILABLE = True
 except ImportError:
     FIREBASE_AVAILABLE = False

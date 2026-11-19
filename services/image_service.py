@@ -1,9 +1,8 @@
-import os
 import io
 import hashlib
 import logging
 from typing import Tuple, Dict, Any, Optional
-from PIL import Image, ImageOps, ExifTags
+from PIL import Image, ImageOps
 
 logger = logging.getLogger("bea.image_service")
 

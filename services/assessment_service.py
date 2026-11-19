@@ -1,9 +1,7 @@
 import os
-import json
 import logging
 from datetime import date
 from typing import List, Dict, Any, Optional, Tuple
-from config import Config
 from database.db_manager import db_manager
 
 logger = logging.getLogger("bea.assessment_service")
@@ -144,7 +142,6 @@ class AssessmentService:
         # Check tenant stores
         try:
             from services.lecturer_service import LecturerService, TENANTS_DIR
-            import os, json
             if os.path.exists(TENANTS_DIR):
                 for tid in os.listdir(TENANTS_DIR):
                     tenant_asms = LecturerService.load_tenant_data(tid, "assessments.json")
@@ -397,7 +394,6 @@ class AssessmentService:
     @classmethod
     def delete_assessment(cls, assessment_id: str) -> Tuple[bool, str]:
         """Deletes an assessment if it has no submitted student scripts."""
-        from services.submission_service import SubmissionService
         supabase = db_manager.get_supabase(use_service_role=True)
         if supabase:
             try:

@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from flask import Flask, redirect, url_for, session, render_template, jsonify
 from config import Config
 from routes.student_routes import student_bp

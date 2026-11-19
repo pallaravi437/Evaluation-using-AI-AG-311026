@@ -3,9 +3,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-import shutil
 from app import create_app
-from services.lecturer_service import LecturerService, TENANTS_DIR, LECTURERS_FILE
+from services.lecturer_service import LecturerService
 from services.auth_service import AuthService
 from services.assessment_service import AssessmentService
 from services.student_service import StudentService
@@ -198,11 +197,13 @@ def test_student_registration_with_available_lecturers(client):
     from services.lecturer_service import LecturerService
     from services.student_service import StudentService
 
+    import uuid
+    uniq = uuid.uuid4().hex[:6].upper()
     # 1. Register and approve lecturer
     ok, lec_data, _ = LecturerService.register_lecturer(
-        full_name="Prof. Anand Rao",
-        username="anand_ece",
-        email="anand@college.edu",
+        full_name=f"Prof. Anand Rao {uniq}",
+        username=f"anand_{uniq}",
+        email=f"anand_{uniq}@college.edu",
         password="secretpassword",
         subject="Embedded Systems"
     )
@@ -213,13 +214,14 @@ def test_student_registration_with_available_lecturers(client):
     # 2. Check student signup page contains available lecturers
     signup_page = client.get("/student/signup")
     assert signup_page.status_code == 200
-    assert b"Prof. Anand Rao" in signup_page.data
+    assert f"Prof. Anand Rao {uniq}".encode("utf-8") in signup_page.data
     assert b"Embedded Systems" in signup_page.data
 
     # 3. Student registers choosing Prof. Anand Rao
+    student_pin = f"26054-ES-{uniq}"
     reg_resp = client.post("/student/signup", data={
         "name": "MOHAMMED IMRAN",
-        "pin": "26054-ES-777",
+        "pin": student_pin,
         "lecturer_id": lec_id,
         "branch": "ECE",
         "semester": "Semester 3",
@@ -230,7 +232,7 @@ def test_student_registration_with_available_lecturers(client):
     # 4. Student cannot log in before approval
     unapproved_login = client.post("/student/login", data={
         "name": "MOHAMMED IMRAN",
-        "pin": "26054-ES-777"
+        "pin": student_pin
     }, follow_redirects=True)
     assert b"pending approval" in unapproved_login.data
 
@@ -242,13 +244,13 @@ def test_student_registration_with_available_lecturers(client):
 
     students_page = client.get("/teacher/students")
     assert students_page.status_code == 200
-    assert b"26054-ES-777" in students_page.data
+    assert student_pin.encode("utf-8") in students_page.data
     assert b"MOHAMMED IMRAN" in students_page.data
 
     # 6. Lecturer approves student
     pending = StudentService.get_pending_students_for_lecturer(lec_id)
     assert len(pending) >= 1
-    reg_id = next(p["id"] for p in pending if p["pin"] == "26054-ES-777")
+    reg_id = next(p["id"] for p in pending if p["pin"] == student_pin)
 
     approve_resp = client.post(f"/teacher/students/approve-registration/{reg_id}", follow_redirects=True)
     assert approve_resp.status_code == 200
@@ -258,7 +260,7 @@ def test_student_registration_with_available_lecturers(client):
     client.get("/student/logout")
     approved_login = client.post("/student/login", data={
         "name": "MOHAMMED IMRAN",
-        "pin": "26054-ES-777"
+        "pin": student_pin
     }, follow_redirects=True)
     assert approved_login.status_code == 200
     assert b"Welcome, MOHAMMED IMRAN" in approved_login.data or b"Available Assessments" in approved_login.data

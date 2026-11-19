@@ -1,5 +1,4 @@
 import logging
-import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, Tuple
 import bcrypt

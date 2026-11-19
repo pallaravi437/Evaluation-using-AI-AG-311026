@@ -1,6 +1,6 @@
 import logging
 import statistics
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from database.db_manager import db_manager
 
 logger = logging.getLogger("bea.analytics_service")

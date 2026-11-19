@@ -6,7 +6,6 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple, Optional
-from config import Config
 from database.db_manager import db_manager
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

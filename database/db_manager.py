@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, Tuple
 from config import Config
 
 logger = logging.getLogger("bea.db_manager")

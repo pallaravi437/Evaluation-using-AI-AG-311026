@@ -5,9 +5,6 @@ Tests multi-server registry, storage routing hierarchy, universal file manager,
 repositories (Students, Syllabus, Materials), and universal multi-category search.
 """
 
-import pytest
-import io
-import json
 from database.server_registry import DatabaseServerManager
 from database.routing_manager import StorageRoutingManager
 from database.file_storage_manager import FileStorageManager
@@ -15,9 +12,6 @@ from database.universal_data_manager import universal_data_manager
 from services.academic_repositories import (
     StudentRepository,
     SyllabusRepository,
-    MaterialRepository,
-    QuestionRepository,
-    EvaluationRepository,
 )
 from services.universal_search_service import universal_search_service
 

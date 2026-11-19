@@ -8,8 +8,6 @@ and multi-server source attribution.
 
 import logging
 from typing import Any, Dict, List, Optional
-from database.server_registry import db_server_manager
-from database.routing_manager import storage_routing_manager
 from services.academic_repositories import (
     student_repository,
     syllabus_repository,
