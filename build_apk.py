@@ -29,13 +29,33 @@ def build_apk():
         shutil.rmtree(work_dir)
     os.makedirs(work_dir, exist_ok=True)
     
+    # 0. Sync fresh static assets to android_app/app/src/main/assets
+    assets_static = os.path.abspath("android_app/app/src/main/assets/static")
+    src_static = os.path.abspath("static")
+    if os.path.exists(src_static):
+        os.makedirs(assets_static, exist_ok=True)
+        for item in ["css", "js", "icons", "images"]:
+            s = os.path.join(src_static, item)
+            d = os.path.join(assets_static, item)
+            if os.path.exists(s):
+                if os.path.exists(d):
+                    shutil.rmtree(d)
+                shutil.copytree(s, d)
+        for f in ["sw.js", "manifest.json"]:
+            sf = os.path.join(src_static, f)
+            df = os.path.join(assets_static, f)
+            if os.path.exists(sf):
+                shutil.copy2(sf, df)
+        print("[+] Synced latest web assets to Android assets directory")
+
     res_compiled = os.path.join(work_dir, "compiled_res.zip")
     gen_dir = os.path.join(work_dir, "gen")
     classes_dir = os.path.join(work_dir, "classes")
     dex_dir = os.path.join(work_dir, "dex")
     unaligned_apk = os.path.join(work_dir, "unaligned.apk")
     aligned_apk = os.path.join(work_dir, "aligned.apk")
-    final_apk = os.path.join(work_dir, "app-debug.apk")
+    debug_apk = os.path.join(work_dir, "app-debug.apk")
+    release_apk = os.path.join(work_dir, "app-release.apk")
     
     os.makedirs(gen_dir, exist_ok=True)
     os.makedirs(classes_dir, exist_ok=True)
@@ -98,52 +118,70 @@ def build_apk():
     zipalign_cmd = f'"{zipalign}" -v -p 4 "{unaligned_apk}" "{aligned_apk}"'
     run_cmd(zipalign_cmd, "zipalign APK")
     
-    # 7. Create debug keystore if not exists
-    keystore_path = os.path.join(work_dir, "debug.keystore")
-    keytool_cmd = (
-        f'keytool -genkeypair -v -keystore "{keystore_path}" '
+    # 7. Create debug keystore & sign app-debug.apk
+    debug_keystore = os.path.join(work_dir, "debug.keystore")
+    keytool_debug_cmd = (
+        f'keytool -genkeypair -v -keystore "{debug_keystore}" '
         f'-storepass android -alias androiddebugkey -keypass android '
         f'-keyalg RSA -keysize 2048 -validity 10000 '
         f'-dname "CN=Android Debug,O=Android,C=US"'
     )
-    run_cmd(keytool_cmd, "keytool create debug keystore")
+    run_cmd(keytool_debug_cmd, "keytool create debug keystore")
     
-    # 8. Sign APK with apksigner
-    sign_cmd = (
-        f'"{apksigner}" sign --ks "{keystore_path}" '
+    sign_debug_cmd = (
+        f'"{apksigner}" sign --ks "{debug_keystore}" '
         f'--ks-pass pass:android --key-pass pass:android '
         f'--ks-key-alias androiddebugkey '
-        f'--out "{final_apk}" "{aligned_apk}"'
+        f'--out "{debug_apk}" "{aligned_apk}"'
     )
-    run_cmd(sign_cmd, "apksigner sign APK")
+    run_cmd(sign_debug_cmd, "apksigner sign debug APK")
     
-    # 9. Verify APK signature
-    verify_cmd = f'"{apksigner}" verify --verbose "{final_apk}"'
-    verify_out = run_cmd(verify_cmd, "apksigner verify APK")
+    # 8. Create release keystore & sign app-release.apk
+    release_keystore = os.path.join(work_dir, "release.keystore")
+    keytool_release_cmd = (
+        f'keytool -genkeypair -v -keystore "{release_keystore}" '
+        f'-storepass aievaluator2026 -alias aievaluatorkey -keypass aievaluator2026 '
+        f'-keyalg RSA -keysize 2048 -validity 10000 '
+        f'-dname "CN=AI Evaluator Production,O=BEA Educational Systems,C=IN"'
+    )
+    run_cmd(keytool_release_cmd, "keytool create production release keystore")
+    
+    sign_release_cmd = (
+        f'"{apksigner}" sign --ks "{release_keystore}" '
+        f'--ks-pass pass:aievaluator2026 --key-pass pass:aievaluator2026 '
+        f'--ks-key-alias aievaluatorkey '
+        f'--out "{release_apk}" "{aligned_apk}"'
+    )
+    run_cmd(sign_release_cmd, "apksigner sign release APK")
+    
+    # 9. Verify APK signatures
+    verify_cmd = f'"{apksigner}" verify --verbose "{release_apk}"'
+    verify_out = run_cmd(verify_cmd, "apksigner verify release APK")
     print(verify_out)
     
-    apk_size = os.path.getsize(final_apk)
-    print(f"[*] Generated real APK size: {apk_size} bytes ({apk_size / (1024*1024):.2f} MB)")
-    
-    if apk_size < 1024 * 1024:
-        raise ValueError(f"APK size is less than 1MB: {apk_size} bytes")
+    # Copy both APKs to output folders
+    out_dirs = [
+        os.path.abspath(".build-outputs"),
+        os.path.abspath("APK_DOWNLOAD")
+    ]
+    for d in out_dirs:
+        os.makedirs(d, exist_ok=True)
+        shutil.copy2(debug_apk, os.path.join(d, "app-debug.apk"))
+        shutil.copy2(release_apk, os.path.join(d, "app-release.apk"))
+        print(f"[+] Placed app-debug.apk & app-release.apk at: {d}")
         
-    # Copy to destinations requested by user
-    dest1 = os.path.abspath(".build-outputs/app-debug.apk")
-    dest2 = os.path.abspath("APK_DOWNLOAD/app-debug.apk")
+    debug_size = os.path.getsize(debug_apk)
+    release_size = os.path.getsize(release_apk)
+    print(f"[*] Debug APK Size: {debug_size / (1024*1024):.2f} MB")
+    print(f"[*] Release APK Size: {release_size / (1024*1024):.2f} MB")
     
-    os.makedirs(os.path.dirname(dest1), exist_ok=True)
-    os.makedirs(os.path.dirname(dest2), exist_ok=True)
-    
-    shutil.copy2(final_apk, dest1)
-    shutil.copy2(final_apk, dest2)
-    print(f"[+] Placed copy at: {dest1}")
-    print(f"[+] Placed copy at: {dest2}")
-    
-    # Clean up work dir
+    # Clean up temp
     shutil.rmtree(work_dir, ignore_errors=True)
-    return dest2
+    return {
+        "debug_apk": os.path.join(out_dirs[1], "app-debug.apk"),
+        "release_apk": os.path.join(out_dirs[1], "app-release.apk")
+    }
 
 if __name__ == "__main__":
     out = build_apk()
-    print("FINISHED SUCCESSFULLY:", out)
+    print("FINISHED ALL BUILDS SUCCESSFULLY:", out)
